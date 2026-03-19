@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.kde.cmfbuds
+Exec=/usr/local/bin/cmfd

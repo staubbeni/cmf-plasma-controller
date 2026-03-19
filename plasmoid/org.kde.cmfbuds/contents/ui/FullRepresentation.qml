@@ -148,11 +148,11 @@ PlasmaExtras.Representation {
                             dbusHelper.setAncMode(modelData.mode)
                         }
 
-                        ButtonGroup.group: modeGroup
+                        QQC2.ButtonGroup.group: modeGroup
                     }
                 }
 
-                ButtonGroup { id: modeGroup; exclusive: true }
+                QQC2.ButtonGroup { id: modeGroup; exclusive: true }
             }
         }
 

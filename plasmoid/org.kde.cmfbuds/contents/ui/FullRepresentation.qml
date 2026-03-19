@@ -98,7 +98,7 @@ PlasmaExtras.Representation {
         // ----------------------------------------------------------------
         // Divider
         // ----------------------------------------------------------------
-        PlasmaExtras.PlasmaDivider {}
+        Kirigami.Separator { Layout.fillWidth: true }
 
         // ----------------------------------------------------------------
         // ANC Mode buttons

@@ -1,0 +1,23 @@
+{
+    "KPlugin": {
+        "Id": "org.kde.cmfbuds",
+        "Name": "CMF Buds Controller",
+        "Description": "Control ANC modes and monitor battery for CMF Buds (by Nothing) from the system tray.",
+        "Icon": "audio-headset",
+        "Category": "Utilities",
+        "Authors": [
+            {
+                "Email": "",
+                "Name": "CMF Plasma Controller"
+            }
+        ],
+        "License": "GPL-2.0-or-later",
+        "Version": "1.0.0",
+        "Website": "https://github.com/staubbeni/cmf-plasma-controller"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "X-Plasma-Provides": [
+        "org.kde.plasma.systemtray"
+    ]
+}

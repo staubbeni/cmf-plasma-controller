@@ -1,0 +1,19 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/publish/
+/tmp/cmfd-build/
+
+# .NET
+*.user
+*.suo
+.vs/
+*.nupkg
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

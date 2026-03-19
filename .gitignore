@@ -1,0 +1,32 @@
+# ── .NET build artifacts ────────────────────────────────────────────────────
+**/bin/
+**/obj/
+**/publish/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# .NET tooling
+*.user
+*.suo
+.vs/
+.fake
+
+# ── IDEs ────────────────────────────────────────────────────────────────────
+# JetBrains Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# ── Plasma / KDE ────────────────────────────────────────────────────────────
+# Installed plasmoid package (kpackagetool output)
+*.plasmoid
+
+# ── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*~

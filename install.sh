@@ -27,20 +27,6 @@ fi
 # ─── Dependency check ──────────────────────────────────────────────────────
 echo "▶ Checking dependencies..."
 
-# dotnet is only needed to build; not required at runtime (self-contained binary)
-if ! command -v dotnet &>/dev/null; then
-    echo "ERROR: .NET SDK not found (needed to build)."
-    echo "Install with: sudo dnf install dotnet-sdk-8.0   # Fedora"
-    echo "              sudo apt install dotnet-sdk-8.0   # Debian/Ubuntu"
-    exit 1
-fi
-
-DOTNET_MAJOR=$(dotnet --version | cut -d. -f1)
-if (( DOTNET_MAJOR < 8 )); then
-    echo "ERROR: .NET 8+ SDK required to build (found $(dotnet --version))."
-    exit 1
-fi
-
 if ! command -v bluetoothctl &>/dev/null; then
     echo "ERROR: bluetoothctl not found. Install BlueZ:"
     echo "         sudo dnf install bluez   # Fedora"
@@ -48,20 +34,44 @@ if ! command -v bluetoothctl &>/dev/null; then
     exit 1
 fi
 
-# ─── Build daemon ──────────────────────────────────────────────────────────
-echo "▶ Building cmfd daemon..."
-dotnet publish "${DAEMON_SRC}/CmfBudsService.csproj" \
-    -c Release \
-    -r linux-x64 \
-    --self-contained true \
-    -p:PublishSingleFile=true \
-    -p:PublishTrimmed=true \
-    -o /tmp/cmfd-build
+# ─── Build daemon (or use pre-built binary from release tarball) ───────────
+PREBUILT="$(dirname "$0")/cmfd"
+if [[ -f "${PREBUILT}" && -x "${PREBUILT}" ]]; then
+    echo "▶ Using pre-built binary..."
+    mkdir -p "$(dirname "${DAEMON_BIN}")"
+    cp "${PREBUILT}" "${DAEMON_BIN}"
+    chmod +x "${DAEMON_BIN}"
+    echo "  ✔ Daemon installed to ${DAEMON_BIN}"
+else
+    # dotnet SDK required only when building from source
+    if ! command -v dotnet &>/dev/null; then
+        echo "ERROR: .NET SDK not found (needed to build from source)."
+        echo "Install with: sudo dnf install dotnet-sdk-8.0   # Fedora"
+        echo "              sudo apt install dotnet-sdk-8.0   # Debian/Ubuntu"
+        echo "Or download the release tarball which includes a pre-built binary."
+        exit 1
+    fi
 
-mkdir -p "$(dirname "${DAEMON_BIN}")"
-cp /tmp/cmfd-build/cmfd "${DAEMON_BIN}"
-chmod +x "${DAEMON_BIN}"
-echo "  ✔ Daemon installed to ${DAEMON_BIN}"
+    DOTNET_MAJOR=$(dotnet --version | cut -d. -f1)
+    if (( DOTNET_MAJOR < 8 )); then
+        echo "ERROR: .NET 8+ SDK required to build (found $(dotnet --version))."
+        exit 1
+    fi
+
+    echo "▶ Building cmfd daemon..."
+    dotnet publish "${DAEMON_SRC}/CmfBudsService.csproj" \
+        -c Release \
+        -r linux-x64 \
+        --self-contained true \
+        -p:PublishSingleFile=true \
+        -p:PublishTrimmed=true \
+        -o /tmp/cmfd-build
+
+    mkdir -p "$(dirname "${DAEMON_BIN}")"
+    cp /tmp/cmfd-build/cmfd "${DAEMON_BIN}"
+    chmod +x "${DAEMON_BIN}"
+    echo "  ✔ Daemon installed to ${DAEMON_BIN}"
+fi
 
 # ─── D-Bus service activation file ────────────────────────────────────────
 echo "▶ Installing D-Bus service activation file..."

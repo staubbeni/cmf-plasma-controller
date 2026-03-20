@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Run tests
+        run: dotnet test tests/CmfBudsService.Tests
+
+      - name: Publish self-contained binary
+        run: |
+          dotnet publish backend/CmfBudsService/CmfBudsService.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true \
+            -o dist/
+
+      - name: Create release archive
+        run: |
+          cp dist/cmfd .
+          tar -czf cmf-plasma-controller-${{ github.ref_name }}.tar.gz \
+            cmfd \
+            plasmoid/ \
+            install.sh \
+            README.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cmf-plasma-controller-${{ github.ref_name }}.tar.gz
+          generate_release_notes: true

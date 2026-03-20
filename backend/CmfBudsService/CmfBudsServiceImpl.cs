@@ -365,7 +365,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     // Internal: connection management
     // ────────────────────────────────────────────────────────────────────────
 
-    private async Task EnsureConnectedAsync(CancellationToken ct = default)
+    private async Task EnsureConnectedAsync(CancellationToken ct = default, bool silent = false)
     {
         if (_bt?.IsConnected == true) return;
         if (string.IsNullOrEmpty(_macAddress))
@@ -386,7 +386,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
             _bt?.Dispose();
             _bt = new BluetoothService(_macAddress);
-            SetConnectionState("connecting");
+            if (!silent) SetConnectionState("connecting");
             await _bt.ConnectAsync(ct);
             SetConnectionState("connected");
 
@@ -498,7 +498,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
             catch (OperationCanceledException) { return; }
             try
             {
-                await EnsureConnectedAsync(ct);
+                await EnsureConnectedAsync(ct, silent: true);
                 Console.Error.WriteLine("[cmfd] Reconnected successfully.");
                 return;
             }

@@ -3,7 +3,7 @@
         "Id": "org.kde.cmfbuds",
         "Name": "CMF Buds Controller",
         "Description": "Control ANC modes and monitor battery for CMF Buds (by Nothing) from the system tray.",
-        "Icon": "audio-headset",
+        "Icon": "audio-headphones",
         "Category": "Utilities",
         "Authors": [
             {

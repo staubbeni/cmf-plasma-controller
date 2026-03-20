@@ -8,16 +8,12 @@ import org.kde.kirigami as Kirigami
 PlasmaExtras.Representation {
     id: root
 
-    // ── Setup panel state ────────────────────────────────────────────────────
-    property var  pairedDevices: []
-    property bool setupLoading:  false
-
-    // ── Gesture panel state ──────────────────────────────────────────────────
-    property string gestureSide: "left"
-
-    // ── Ring-bud button state ────────────────────────────────────────────────
-    property bool ringingLeft:  false
-    property bool ringingRight: false
+    // ── State ────────────────────────────────────────────────────────────────
+    property var    pairedDevices: []
+    property bool   setupLoading:  false
+    property string gestureSide:   "left"
+    property bool   ringingLeft:   false
+    property bool   ringingRight:  false
 
     function refreshDevices() {
         setupLoading = true
@@ -32,39 +28,43 @@ PlasmaExtras.Representation {
             refreshDevices()
     }
 
-    // ── EQ debounce timer ────────────────────────────────────────────────────
+    // EQ debounce
     Timer {
         id: eqDebounce
         interval: 300
         onTriggered: dbusHelper.setCustomEq(bassSlider.value, midSlider.value, trebleSlider.value)
     }
 
-    // ── Scroll container — fills whatever size the applet is given ───────────
+    // Sliders declared here so they are accessible from ColumnLayout/Repeater
+    QQC2.Slider { id: bassSlider;   visible: false; from: -6; to: 6; stepSize: 1
+        value: dbusHelper.customEq.bass   || 0; onMoved: eqDebounce.restart() }
+    QQC2.Slider { id: midSlider;    visible: false; from: -6; to: 6; stepSize: 1
+        value: dbusHelper.customEq.mid    || 0; onMoved: eqDebounce.restart() }
+    QQC2.Slider { id: trebleSlider; visible: false; from: -6; to: 6; stepSize: 1
+        value: dbusHelper.customEq.treble || 0; onMoved: eqDebounce.restart() }
+
+    // ── Scroll container ─────────────────────────────────────────────────────
     QQC2.ScrollView {
         id: scrollView
         anchors.fill: parent
         contentWidth: availableWidth
-        contentHeight: mainColumn.implicitHeight + Kirigami.Units.largeSpacing * 2
+        contentHeight: mainCol.implicitHeight
         clip: true
         QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
         ColumnLayout {
-            id: mainColumn
+            id: mainCol
             width: scrollView.availableWidth
-            spacing: Kirigami.Units.largeSpacing
-
-            // top padding
-            Item { Layout.preferredHeight: Kirigami.Units.smallSpacing }
+            spacing: 0
 
             // ════════════════════════════════════════════════════════════════
-            // SETUP PANEL — shown when no device is configured
+            // SETUP PANEL
             // ════════════════════════════════════════════════════════════════
             ColumnLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.smallSpacing
                 visible: !plasmoid.configuration.macAddress
+                Layout.fillWidth: true
+                Layout.margins: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing
                 onVisibleChanged: if (visible) refreshDevices()
 
                 PlasmaComponents3.Label {
@@ -99,8 +99,8 @@ PlasmaExtras.Representation {
                         onClicked: {
                             let p = modelData.split("|")
                             if (p.length >= 2) {
-                                plasmoid.configuration.macAddress  = p[0]
-                                plasmoid.configuration.deviceName  = p[1]
+                                plasmoid.configuration.macAddress = p[0]
+                                plasmoid.configuration.deviceName = p[1]
                             } else {
                                 plasmoid.configuration.macAddress = modelData
                             }
@@ -139,68 +139,110 @@ PlasmaExtras.Representation {
                 }
                 PlasmaComponents3.Button {
                     Layout.alignment: Qt.AlignHCenter
-                    text: qsTr("Refresh device list")
+                    text: qsTr("Refresh")
                     icon.name: "view-refresh"
                     onClicked: refreshDevices()
                 }
             }
 
             // ════════════════════════════════════════════════════════════════
-            // HEADER — device name + connection status
+            // DEVICE HEADER — art + name + battery
             // ════════════════════════════════════════════════════════════════
-            RowLayout {
+            ColumnLayout {
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.smallSpacing
+                spacing: 0
 
-                Rectangle {
-                    width: 10; height: 10; radius: 5
-                    color: {
-                        switch (dbusHelper.connectionState) {
-                        case "connected":  return "#4CAF50"
-                        case "connecting": return "#E6A817"
-                        case "error":      return "#F44336"
-                        default:           return Kirigami.Theme.disabledTextColor
+                // Device name + connection state
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin:   Kirigami.Units.largeSpacing
+                    Layout.rightMargin:  Kirigami.Units.largeSpacing
+                    Layout.bottomMargin: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        width: 8; height: 8; radius: 4
+                        color: {
+                            switch (dbusHelper.connectionState) {
+                            case "connected":  return "#4CAF50"
+                            case "connecting": return "#E6A817"
+                            case "error":      return "#F44336"
+                            default:           return Kirigami.Theme.disabledTextColor
+                            }
                         }
+                        Behavior on color { ColorAnimation { duration: 300 } }
                     }
-                    Behavior on color { ColorAnimation { duration: 300 } }
-                }
-                ColumnLayout {
-                    spacing: 0
                     PlasmaComponents3.Label {
                         text: plasmoid.configuration.deviceName || "CMF Buds"
                         font.bold: true
                     }
                     PlasmaComponents3.Label {
+                        visible: dbusHelper.connectionState !== "connected"
                         text: {
                             switch (dbusHelper.connectionState) {
-                            case "connected":  return qsTr("Connected")
                             case "connecting": return qsTr("Connecting…")
-                            case "error":      return qsTr("Connection error")
+                            case "error":      return qsTr("Error")
                             default:           return qsTr("Disconnected")
                             }
                         }
                         font.pointSize: Kirigami.Theme.smallFont.pointSize
                         color: Kirigami.Theme.disabledTextColor
                     }
+                    Item { Layout.fillWidth: true }
+                    PlasmaComponents3.Label {
+                        visible: dbusHelper.firmwareVersion !== "" && dbusHelper.connectionState === "connected"
+                        text: dbusHelper.firmwareVersion
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+                    PlasmaComponents3.ToolButton {
+                        icon.name: "configure"
+                        PlasmaComponents3.ToolTip.text: qsTr("Change device")
+                        PlasmaComponents3.ToolTip.visible: hovered
+                        onClicked: plasmoid.configuration.macAddress = ""
+                    }
                 }
-                Item { Layout.fillWidth: true }
-                PlasmaComponents3.ToolButton {
-                    icon.name: "configure"
-                    PlasmaComponents3.ToolTip.text: qsTr("Change device")
-                    PlasmaComponents3.ToolTip.visible: hovered
-                    onClicked: plasmoid.configuration.macAddress = ""
+
+                // Compact battery strip
+                RowLayout {
+                    visible: dbusHelper.batteryLeft >= 0 && dbusHelper.connectionState === "connected"
+                    Layout.fillWidth: true
+                    Layout.leftMargin:   Kirigami.Units.largeSpacing
+                    Layout.rightMargin:  Kirigami.Units.largeSpacing
+                    Layout.bottomMargin: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.largeSpacing
+
+                    Repeater {
+                        model: [
+                            { label: qsTr("L"),    value: dbusHelper.batteryLeft,  charging: dbusHelper.batteryLeftCharging  },
+                            { label: qsTr("R"),    value: dbusHelper.batteryRight, charging: dbusHelper.batteryRightCharging },
+                            { label: qsTr("Case"), value: dbusHelper.batteryCase,  charging: dbusHelper.batteryCaseCharging  },
+                        ]
+                        RowLayout {
+                            required property var modelData
+                            visible: modelData.value >= 0
+                            spacing: 4
+
+                            Kirigami.Icon {
+                                source: modelData.charging ? "battery-charging-symbolic"
+                                    : (modelData.value > 60 ? "battery-100-symbolic"
+                                    : modelData.value > 30 ? "battery-060-symbolic"
+                                    :                        "battery-020-symbolic")
+                                implicitWidth:  Kirigami.Units.iconSizes.small
+                                implicitHeight: Kirigami.Units.iconSizes.small
+                            }
+                            PlasmaComponents3.Label {
+                                text: modelData.label + " " + modelData.value + "%"
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                color: modelData.value <= 20 ? "#F44336" : Kirigami.Theme.textColor
+                            }
+                        }
+                    }
                 }
             }
 
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
+            Kirigami.Separator { visible: !!plasmoid.configuration.macAddress; Layout.fillWidth: true }
 
             // ════════════════════════════════════════════════════════════════
             // NOISE CONTROL
@@ -208,46 +250,97 @@ PlasmaExtras.Representation {
             ColumnLayout {
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin:    Kirigami.Units.largeSpacing
+                Layout.leftMargin:   Kirigami.Units.largeSpacing
+                Layout.rightMargin:  Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
 
                 PlasmaComponents3.Label {
                     text: qsTr("Noise Control")
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.disabledTextColor
-                    font.letterSpacing: 1.5
                     font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1.2
                 }
 
                 QQC2.ButtonGroup { id: ancModeGroup }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.smallSpacing
+
                     Repeater {
                         model: [
-                            { mode: "anc",         label: qsTr("Noise Cancel"), icon: "audio-input-microphone-muted" },
-                            { mode: "transparency", label: qsTr("Transparent"),  icon: "audio-input-microphone"       },
-                            { mode: "off",          label: qsTr("Off"),          icon: "audio-volume-muted"           },
+                            { mode: "anc",         label: qsTr("Noise Cancel"), icon: "assets/anc_on.svg"          },
+                            { mode: "transparency", label: qsTr("Transparent"),  icon: "assets/anc_transparent.svg" },
+                            { mode: "off",          label: qsTr("Off"),          icon: "assets/anc_off.svg"         },
                         ]
-                        PlasmaComponents3.Button {
+                        delegate: Item {
                             required property var modelData
                             Layout.fillWidth: true
-                            text: modelData.label
-                            icon.name: modelData.icon
-                            checkable: true
-                            checked: modelData.mode === "anc" ? dbusHelper.ancIsNc
-                                                              : dbusHelper.ancMode === modelData.mode
-                            enabled: dbusHelper.connectionState === "connected"
-                            highlighted: checked
-                            palette.buttonText: checked ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-                            onClicked: dbusHelper.setAncMode(
-                                modelData.mode === "anc" ? "anc_" + dbusHelper.ancStrength : modelData.mode)
-                            QQC2.ButtonGroup.group: ancModeGroup
+                            implicitHeight: cardCol.implicitHeight + Kirigami.Units.largeSpacing * 2
+
+                            property bool isChecked: modelData.mode === "anc"
+                                ? dbusHelper.ancIsNc
+                                : dbusHelper.ancMode === modelData.mode
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Kirigami.Units.cornerRadius
+                                color: isChecked
+                                    ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                              Kirigami.Theme.highlightColor.g,
+                                              Kirigami.Theme.highlightColor.b, 0.18)
+                                    : (mouseArea.containsMouse ? Qt.rgba(Kirigami.Theme.textColor.r,
+                                                                          Kirigami.Theme.textColor.g,
+                                                                          Kirigami.Theme.textColor.b, 0.06)
+                                                               : "transparent")
+                                border.color: isChecked ? Kirigami.Theme.highlightColor : "transparent"
+                                border.width: 1
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+
+                            ColumnLayout {
+                                id: cardCol
+                                anchors.centerIn: parent
+                                spacing: 4
+
+                                Image {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.preferredWidth: 40
+                                    Layout.preferredHeight: 40
+                                    source: Qt.resolvedUrl(modelData.icon)
+                                    sourceSize.width: 40
+                                    sourceSize.height: 40
+                                    fillMode: Image.PreserveAspectFit
+                                    opacity: isChecked ? 1.0 : 0.4
+                                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                                }
+                                PlasmaComponents3.Label {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: modelData.label
+                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                    color: isChecked ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                }
+                            }
+
+                            MouseArea {
+                                id: mouseArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                enabled: dbusHelper.connectionState === "connected"
+                                onClicked: {
+                                    dbusHelper.setAncMode(
+                                        modelData.mode === "anc" ? "anc_" + dbusHelper.ancStrength : modelData.mode)
+                                }
+                            }
                         }
                     }
                 }
 
+                // ANC strength sub-row
                 RowLayout {
                     visible: dbusHelper.ancIsNc && dbusHelper.connectionState === "connected"
                     Layout.fillWidth: true
@@ -262,7 +355,7 @@ PlasmaExtras.Representation {
                         ]
                         PlasmaComponents3.Button {
                             required property var modelData
-                            Layout.fillWidth: true
+                            Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
                             text: modelData.label
                             checkable: true
                             checked: dbusHelper.ancStrength === modelData.strength
@@ -275,69 +368,7 @@ PlasmaExtras.Representation {
                 }
             }
 
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress && dbusHelper.batteryLeft >= 0
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
-
-            // ════════════════════════════════════════════════════════════════
-            // BATTERY
-            // ════════════════════════════════════════════════════════════════
-            ColumnLayout {
-                visible: !!plasmoid.configuration.macAddress && dbusHelper.batteryLeft >= 0
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.smallSpacing
-
-                PlasmaComponents3.Label {
-                    text: qsTr("Battery")
-                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                    color: Kirigami.Theme.disabledTextColor
-                    font.letterSpacing: 1.5
-                    font.capitalization: Font.AllUppercase
-                }
-
-                Repeater {
-                    model: [
-                        { label: "L",    value: dbusHelper.batteryLeft,  charging: dbusHelper.batteryLeftCharging  },
-                        { label: "R",    value: dbusHelper.batteryRight, charging: dbusHelper.batteryRightCharging },
-                        { label: "Case", value: dbusHelper.batteryCase,  charging: dbusHelper.batteryCaseCharging  },
-                    ]
-                    RowLayout {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        spacing: Kirigami.Units.smallSpacing
-                        visible: modelData.value >= 0
-
-                        PlasmaComponents3.Label {
-                            text: modelData.label + (modelData.charging ? " ⚡" : "")
-                            font.bold: true
-                            Layout.minimumWidth: Kirigami.Units.gridUnit * 2.5
-                        }
-                        QQC2.ProgressBar {
-                            Layout.fillWidth: true
-                            from: 0; to: 100
-                            value: modelData.value
-                            palette.highlight: modelData.value <= 20 ? "#F44336" : Kirigami.Theme.highlightColor
-                        }
-                        PlasmaComponents3.Label {
-                            text: modelData.value + "%"
-                            Layout.minimumWidth: Kirigami.Units.gridUnit * 2.5
-                            horizontalAlignment: Text.AlignRight
-                        }
-                    }
-                }
-            }
-
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
+            Kirigami.Separator { visible: !!plasmoid.configuration.macAddress; Layout.fillWidth: true }
 
             // ════════════════════════════════════════════════════════════════
             // EQUALIZER
@@ -345,37 +376,34 @@ PlasmaExtras.Representation {
             ColumnLayout {
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin:    Kirigami.Units.largeSpacing
+                Layout.leftMargin:   Kirigami.Units.largeSpacing
+                Layout.rightMargin:  Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
 
                 PlasmaComponents3.Label {
                     text: qsTr("Equalizer")
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.disabledTextColor
-                    font.letterSpacing: 1.5
                     font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1.2
                 }
 
                 QQC2.ButtonGroup { id: eqGroup }
-                GridLayout {
+                RowLayout {
                     Layout.fillWidth: true
-                    columns: 4
-                    rowSpacing:    Kirigami.Units.smallSpacing
-                    columnSpacing: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
                     Repeater {
                         model: [
-                            { level: 0, label: qsTr("Dirac OPTEO")     },
-                            { level: 1, label: qsTr("Rock")            },
-                            { level: 2, label: qsTr("Electronic")      },
-                            { level: 3, label: qsTr("Pop")             },
-                            { level: 4, label: qsTr("Enhance Vocals")  },
-                            { level: 5, label: qsTr("Classical")       },
-                            { level: 6, label: qsTr("Custom")          },
+                            { level: 0, label: qsTr("Dirac OPTEO") },
+                            { level: 1, label: qsTr("Rock")        },
+                            { level: 2, label: qsTr("Electronic")  },
+                            { level: 3, label: qsTr("Pop")         },
                         ]
                         PlasmaComponents3.Button {
                             required property var modelData
-                            Layout.fillWidth: true
+                            Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
                             text: modelData.label
                             checkable: true
                             checked: dbusHelper.listeningMode === modelData.level
@@ -387,23 +415,48 @@ PlasmaExtras.Representation {
                         }
                     }
                 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+                    Repeater {
+                        model: [
+                            { level: 4, label: qsTr("Vocals")    },
+                            { level: 5, label: qsTr("Classical") },
+                            { level: 6, label: qsTr("Custom")    },
+                        ]
+                        PlasmaComponents3.Button {
+                            required property var modelData
+                            Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: 0
+                            text: modelData.label
+                            checkable: true
+                            checked: dbusHelper.listeningMode === modelData.level
+                            enabled: dbusHelper.connectionState === "connected"
+                            highlighted: checked
+                            palette.buttonText: checked ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+                            onClicked: dbusHelper.setListeningMode(modelData.level)
+                            QQC2.ButtonGroup.group: eqGroup
+                        }
+                    }
+                    Item { Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                }
 
+                // Custom EQ sliders
                 ColumnLayout {
                     visible: dbusHelper.listeningMode === 6
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
+                    spacing: 2
 
                     RowLayout {
                         Layout.fillWidth: true; spacing: Kirigami.Units.smallSpacing
                         PlasmaComponents3.Label { text: qsTr("Bass");   Layout.minimumWidth: Kirigami.Units.gridUnit * 3.5 }
                         QQC2.Slider {
-                            id: bassSlider
+                            id: bassSliderInline
                             Layout.fillWidth: true; from: -6; to: 6; stepSize: 1
-                            value: dbusHelper.customEq.bass || 0
-                            onMoved: eqDebounce.restart()
+                            value: bassSlider.value
+                            onMoved: { bassSlider.value = value; eqDebounce.restart() }
                         }
                         PlasmaComponents3.Label {
-                            text: bassSlider.value > 0 ? "+" + bassSlider.value : String(bassSlider.value)
+                            text: bassSliderInline.value > 0 ? "+" + bassSliderInline.value : String(bassSliderInline.value)
                             Layout.minimumWidth: Kirigami.Units.gridUnit * 2; horizontalAlignment: Text.AlignRight
                         }
                     }
@@ -411,13 +464,13 @@ PlasmaExtras.Representation {
                         Layout.fillWidth: true; spacing: Kirigami.Units.smallSpacing
                         PlasmaComponents3.Label { text: qsTr("Mid");    Layout.minimumWidth: Kirigami.Units.gridUnit * 3.5 }
                         QQC2.Slider {
-                            id: midSlider
+                            id: midSliderInline
                             Layout.fillWidth: true; from: -6; to: 6; stepSize: 1
-                            value: dbusHelper.customEq.mid || 0
-                            onMoved: eqDebounce.restart()
+                            value: midSlider.value
+                            onMoved: { midSlider.value = value; eqDebounce.restart() }
                         }
                         PlasmaComponents3.Label {
-                            text: midSlider.value > 0 ? "+" + midSlider.value : String(midSlider.value)
+                            text: midSliderInline.value > 0 ? "+" + midSliderInline.value : String(midSliderInline.value)
                             Layout.minimumWidth: Kirigami.Units.gridUnit * 2; horizontalAlignment: Text.AlignRight
                         }
                     }
@@ -425,25 +478,20 @@ PlasmaExtras.Representation {
                         Layout.fillWidth: true; spacing: Kirigami.Units.smallSpacing
                         PlasmaComponents3.Label { text: qsTr("Treble"); Layout.minimumWidth: Kirigami.Units.gridUnit * 3.5 }
                         QQC2.Slider {
-                            id: trebleSlider
+                            id: trebleSliderInline
                             Layout.fillWidth: true; from: -6; to: 6; stepSize: 1
-                            value: dbusHelper.customEq.treble || 0
-                            onMoved: eqDebounce.restart()
+                            value: trebleSlider.value
+                            onMoved: { trebleSlider.value = value; eqDebounce.restart() }
                         }
                         PlasmaComponents3.Label {
-                            text: trebleSlider.value > 0 ? "+" + trebleSlider.value : String(trebleSlider.value)
+                            text: trebleSliderInline.value > 0 ? "+" + trebleSliderInline.value : String(trebleSliderInline.value)
                             Layout.minimumWidth: Kirigami.Units.gridUnit * 2; horizontalAlignment: Text.AlignRight
                         }
                     }
                 }
             }
 
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
+            Kirigami.Separator { visible: !!plasmoid.configuration.macAddress; Layout.fillWidth: true }
 
             // ════════════════════════════════════════════════════════════════
             // ULTRA BASS
@@ -451,19 +499,37 @@ PlasmaExtras.Representation {
             ColumnLayout {
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin:    Kirigami.Units.largeSpacing
+                Layout.leftMargin:   Kirigami.Units.largeSpacing
+                Layout.rightMargin:  Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
 
                 RowLayout {
                     Layout.fillWidth: true
-                    PlasmaComponents3.Label { text: qsTr("Ultra Bass"); font.bold: true; Layout.fillWidth: true }
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        source: Qt.resolvedUrl(dbusHelper.ultraBassEnabled ? "assets/bass_on.svg" : "assets/bass_off.svg")
+                        implicitWidth: 20; implicitHeight: 20
+                        color: Kirigami.Theme.textColor
+                        opacity: dbusHelper.ultraBassEnabled ? 1.0 : 0.45
+                    }
+                    PlasmaComponents3.Label {
+                        text: qsTr("Ultra Bass")
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: Kirigami.Theme.disabledTextColor
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 1.2
+                        Layout.fillWidth: true
+                    }
                     QQC2.Switch {
                         checked: dbusHelper.ultraBassEnabled
                         enabled: dbusHelper.connectionState === "connected"
                         onToggled: dbusHelper.setUltraBass(checked, dbusHelper.ultraBassLevel)
                     }
                 }
+
                 RowLayout {
                     visible: dbusHelper.ultraBassEnabled
                     Layout.fillWidth: true
@@ -485,12 +551,7 @@ PlasmaExtras.Representation {
                 }
             }
 
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
+            Kirigami.Separator { visible: !!plasmoid.configuration.macAddress; Layout.fillWidth: true }
 
             // ════════════════════════════════════════════════════════════════
             // QUICK SETTINGS
@@ -498,16 +559,18 @@ PlasmaExtras.Representation {
             ColumnLayout {
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.smallSpacing
+                Layout.topMargin:    Kirigami.Units.largeSpacing
+                Layout.leftMargin:   Kirigami.Units.largeSpacing
+                Layout.rightMargin:  Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.largeSpacing
+                spacing: 2
 
                 PlasmaComponents3.Label {
                     text: qsTr("Quick Settings")
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.disabledTextColor
-                    font.letterSpacing: 1.5
                     font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1.2
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -527,20 +590,9 @@ PlasmaExtras.Representation {
                         onToggled: dbusHelper.setLowLatency(checked)
                     }
                 }
-                RowLayout {
-                    visible: dbusHelper.firmwareVersion !== ""
-                    Layout.fillWidth: true
-                    PlasmaComponents3.Label { text: qsTr("Firmware"); color: Kirigami.Theme.disabledTextColor; Layout.fillWidth: true }
-                    PlasmaComponents3.Label { text: dbusHelper.firmwareVersion; color: Kirigami.Theme.disabledTextColor }
-                }
             }
 
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
+            Kirigami.Separator { visible: !!plasmoid.configuration.macAddress; Layout.fillWidth: true }
 
             // ════════════════════════════════════════════════════════════════
             // GESTURES
@@ -549,8 +601,10 @@ PlasmaExtras.Representation {
                 id: gestureSection
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin:    Kirigami.Units.largeSpacing
+                Layout.leftMargin:   Kirigami.Units.largeSpacing
+                Layout.rightMargin:  Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
 
                 function currentGestureAction(gestureType) {
@@ -565,8 +619,8 @@ PlasmaExtras.Representation {
                     text: qsTr("Gestures")
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.disabledTextColor
-                    font.letterSpacing: 1.5
                     font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1.2
                 }
 
                 RowLayout {
@@ -574,7 +628,7 @@ PlasmaExtras.Representation {
                     spacing: Kirigami.Units.smallSpacing
                     QQC2.ButtonGroup { id: gestureSideGroup }
                     PlasmaComponents3.Button {
-                        Layout.fillWidth: true; text: qsTr("Left")
+                        Layout.preferredWidth: 1; Layout.fillWidth: true; Layout.minimumWidth: 0; text: qsTr("Left")
                         checkable: true; checked: root.gestureSide === "left"
                         highlighted: checked
                         palette.buttonText: checked ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
@@ -582,7 +636,7 @@ PlasmaExtras.Representation {
                         QQC2.ButtonGroup.group: gestureSideGroup
                     }
                     PlasmaComponents3.Button {
-                        Layout.fillWidth: true; text: qsTr("Right")
+                        Layout.preferredWidth: 1; Layout.fillWidth: true; Layout.minimumWidth: 0; text: qsTr("Right")
                         checkable: true; checked: root.gestureSide === "right"
                         highlighted: checked
                         palette.buttonText: checked ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
@@ -593,10 +647,10 @@ PlasmaExtras.Representation {
 
                 Repeater {
                     model: [
-                        { type: 2, label: qsTr("Double Pinch"),        actions: [2,8,9,11,1],  labels: [qsTr("Play/Pause"), qsTr("Skip Back"), qsTr("Skip Forward"), qsTr("Voice Assistant"), qsTr("No action")] },
-                        { type: 3, label: qsTr("Triple Pinch"),        actions: [8,9,11,1],    labels: [qsTr("Skip Back"), qsTr("Skip Forward"), qsTr("Voice Assistant"), qsTr("No action")] },
-                        { type: 7, label: qsTr("Pinch & Hold"),        actions: [10,11,1],     labels: [qsTr("Noise Control"), qsTr("Voice Assistant"), qsTr("No action")] },
-                        { type: 9, label: qsTr("Double Pinch & Hold"), actions: [18,19,11,1],  labels: [qsTr("Vol Up"), qsTr("Vol Down"), qsTr("Voice Assistant"), qsTr("No action")] },
+                        { type: 2, label: qsTr("Double Pinch"),        actions: [2,8,9,11,1],  labels: [qsTr("Play/Pause"),qsTr("Skip Back"),qsTr("Skip Forward"),qsTr("Voice Assistant"),qsTr("No action")] },
+                        { type: 3, label: qsTr("Triple Pinch"),        actions: [8,9,11,1],    labels: [qsTr("Skip Back"),qsTr("Skip Forward"),qsTr("Voice Assistant"),qsTr("No action")] },
+                        { type: 7, label: qsTr("Pinch & Hold"),        actions: [10,11,1],     labels: [qsTr("Noise Control"),qsTr("Voice Assistant"),qsTr("No action")] },
+                        { type: 9, label: qsTr("Double Pinch & Hold"), actions: [18,19,11,1],  labels: [qsTr("Vol Up"),qsTr("Vol Down"),qsTr("Voice Assistant"),qsTr("No action")] },
                     ]
                     RowLayout {
                         required property var modelData
@@ -622,12 +676,7 @@ PlasmaExtras.Representation {
                 }
             }
 
-            Kirigami.Separator {
-                visible: !!plasmoid.configuration.macAddress
-                Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-            }
+            Kirigami.Separator { visible: !!plasmoid.configuration.macAddress; Layout.fillWidth: true }
 
             // ════════════════════════════════════════════════════════════════
             // FIND MY BUDS
@@ -635,31 +684,31 @@ PlasmaExtras.Representation {
             ColumnLayout {
                 visible: !!plasmoid.configuration.macAddress
                 Layout.fillWidth: true
-                Layout.leftMargin:  Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin:    Kirigami.Units.largeSpacing
+                Layout.leftMargin:   Kirigami.Units.largeSpacing
+                Layout.rightMargin:  Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
 
                 PlasmaComponents3.Label {
                     text: qsTr("Find My Buds")
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.disabledTextColor
-                    font.letterSpacing: 1.5
                     font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1.2
                 }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.smallSpacing
                     Repeater {
                         model: [
-                            { side: "left",  ringing: root.ringingLeft  },
-                            { side: "right", ringing: root.ringingRight },
+                            { side: "left",  label: qsTr("Left"),  ringing: root.ringingLeft  },
+                            { side: "right", label: qsTr("Right"), ringing: root.ringingRight },
                         ]
                         PlasmaComponents3.Button {
                             required property var modelData
                             Layout.fillWidth: true
-                            text: modelData.ringing
-                                ? qsTr("Stop %1").arg(modelData.side === "left" ? qsTr("Left") : qsTr("Right"))
-                                : qsTr("Ring %1").arg(modelData.side === "left" ? qsTr("Left") : qsTr("Right"))
+                            text: modelData.ringing ? qsTr("Stop %1").arg(modelData.label) : qsTr("Ring %1").arg(modelData.label)
                             icon.name: modelData.ringing ? "media-playback-stop" : "audio-speakers-symbolic"
                             enabled: dbusHelper.connectionState === "connected"
                             highlighted: modelData.ringing
@@ -679,7 +728,6 @@ PlasmaExtras.Representation {
                 }
             }
 
-            // bottom padding
             Item { Layout.preferredHeight: Kirigami.Units.largeSpacing }
 
         } // ColumnLayout

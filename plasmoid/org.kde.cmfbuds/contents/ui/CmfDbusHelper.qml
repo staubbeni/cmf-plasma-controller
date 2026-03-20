@@ -31,8 +31,13 @@ QtObject {
     property string connectionState: "disconnected"
 
     // Derived helpers used by the ANC sub-panel
-    readonly property bool   ancIsNc:       ancMode.startsWith("anc_")
-    readonly property string ancStrength:   ancMode.startsWith("anc_") ? ancMode.substring(4) : "high"
+    readonly property bool   ancIsNc:     ancMode.startsWith("anc_")
+    readonly property string ancStrength: ancMode.startsWith("anc_") ? ancMode.substring(4) : _lastAncStrength
+
+    // Remembers the last chosen ANC strength so switching back from Off/Transparent
+    // restores the previous level instead of always defaulting to "high".
+    property string _lastAncStrength: "high"
+    onAncModeChanged: { if (ancMode.startsWith("anc_")) _lastAncStrength = ancMode.substring(4) }
 
     // ── Battery ──────────────────────────────────────────────────────────────
     property int    batteryLeft:          -1
@@ -167,9 +172,9 @@ QtObject {
         onTriggered: helper._pollCore()
     }
 
-    // Slower full-state timer: picks up phone-side changes every 30s
+    // Full-state timer: picks up phone-side changes (ultra bass, EQ, etc.)
     readonly property var _fullStateTimer: Timer {
-        interval: 30000
+        interval: 5000
         repeat:   true
         running:  true
         onTriggered: {
@@ -195,6 +200,13 @@ QtObject {
             connectionState = state
             if (justConnected)
                 Qt.callLater(_fetchFullState)
+            // If cmfd was restarted it loses the MAC — detect and resend it
+            if (state === "disconnected" && macAddress) {
+                _dbusCallWithResult("GetMacAddress", [], function(stored) {
+                    if (!stored)
+                        _dbusCall("SetMacAddress", [macAddress])
+                })
+            }
         })
         _dbusCallWithResult("GetBatteryLevels", [], function(raw) {
             if (!raw) return

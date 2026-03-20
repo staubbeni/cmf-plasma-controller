@@ -14,6 +14,8 @@ PlasmaExtras.Representation {
     property string gestureSide:   "left"
     property bool   ringingLeft:   false
     property bool   ringingRight:  false
+    // Remembers the MAC address while the setup panel is open (gear button clears macAddress)
+    property string _settingsMac:  plasmoid.configuration.macAddress
 
     function refreshDevices() {
         setupLoading = true
@@ -96,6 +98,10 @@ PlasmaExtras.Representation {
                             let p = modelData.split("|")
                             return p.length >= 2 ? p[1] + "  (" + p[0] + ")" : modelData
                         }
+                        checked: {
+                            let p = modelData.split("|")
+                            return p[0] === root._settingsMac
+                        }
                         onClicked: {
                             let p = modelData.split("|")
                             if (p.length >= 2) {
@@ -104,6 +110,7 @@ PlasmaExtras.Representation {
                             } else {
                                 plasmoid.configuration.macAddress = modelData
                             }
+                            root._settingsMac = plasmoid.configuration.macAddress
                         }
                     }
                 }
@@ -200,7 +207,10 @@ PlasmaExtras.Representation {
                         icon.name: "configure"
                         PlasmaComponents3.ToolTip.text: qsTr("Change device")
                         PlasmaComponents3.ToolTip.visible: hovered
-                        onClicked: plasmoid.configuration.macAddress = ""
+                        onClicked: {
+                            root._settingsMac = plasmoid.configuration.macAddress
+                            plasmoid.configuration.macAddress = ""
+                        }
                     }
                 }
 

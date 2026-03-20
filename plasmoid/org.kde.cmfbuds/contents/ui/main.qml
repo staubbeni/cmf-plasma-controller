@@ -7,12 +7,10 @@ import org.kde.kirigami as Kirigami
 /**
  * main.qml — Compact (tray icon) representation for the CMF Buds widget.
  *
- * Displays a headset icon with a small coloured dot that reflects the
- * current ANC mode:
- *   • Green  → Off
- *   • Blue   → ANC active
- *   • Amber  → Transparency active
- *   • Red    → Disconnected / error
+ * Displays a headset icon with a small coloured dot that reflects status:
+ *   • Grey  → Disconnected / connecting
+ *   • Red   → Connected but battery < 20 %
+ *   • Green → Connected and battery OK
  */
 PlasmoidItem {
     id: root
@@ -23,14 +21,26 @@ PlasmoidItem {
 
     toolTipMainText: plasmoid.title
     toolTipSubText:  dbusHelper.connectionState === "connected"
-                     ? qsTr("L: %1%  R: %2%  Case: %3%  |  Mode: %4")
+                     ? qsTr("L: %1%  R: %2%  Case: %3  |  Mode: %4")
                          .arg(dbusHelper.batteryLeft)
                          .arg(dbusHelper.batteryRight)
-                         .arg(caseBatteryLevel)
-                         .arg(dbusHelper.ancMode)
+                         .arg(caseBatteryLevel < 0 ? qsTr("N/A") : caseBatteryLevel + "%")
+                         .arg(ancModeLabel)
                      : qsTr("Not connected")
 
     property int caseBatteryLevel: dbusHelper.batteryCase
+
+    readonly property string ancModeLabel: {
+        switch (dbusHelper.ancMode) {
+        case "anc_high":     return qsTr("ANC High")
+        case "anc_mid":      return qsTr("ANC Mid")
+        case "anc_low":      return qsTr("ANC Low")
+        case "anc_adaptive": return qsTr("ANC Adaptive")
+        case "transparency": return qsTr("Transparency")
+        case "off":          return qsTr("Off")
+        default:             return dbusHelper.ancMode
+        }
+    }
 
     // -------------------------------------------------------------------
     // Compact representation: icon + status dot
@@ -56,15 +66,14 @@ PlasmoidItem {
                 margins: 1
             }
             color: {
-                switch (dbusHelper.connectionState) {
-                case "connected":
-                    if (dbusHelper.ancIsNc)          return Kirigami.Theme.highlightColor
-                    if (dbusHelper.ancMode === "transparency") return "#E6A817"
-                    return "#4CAF50"
-                case "connecting": return "#E6A817"
-                case "error":      return "#F44336"
-                default:           return Kirigami.Theme.disabledTextColor
-                }
+                if (dbusHelper.connectionState !== "connected")
+                    return Kirigami.Theme.disabledTextColor  // grey
+                let minBatt = Math.min(
+                    dbusHelper.batteryLeft  >= 0 ? dbusHelper.batteryLeft  : 100,
+                    dbusHelper.batteryRight >= 0 ? dbusHelper.batteryRight : 100
+                )
+                if (minBatt < 20) return "#F44336"  // red – low battery
+                return "#4CAF50"                    // green – connected & ok
             }
         }
     }

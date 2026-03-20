@@ -480,6 +480,34 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         _bt = null;
         btOld?.Disconnect();
         try { btOld?.Dispose(); } catch { /* ignore */ }
+
+        // Auto-reconnect unless the service is shutting down
+        if (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_macAddress))
+            _ = Task.Run(() => TryReconnectLoopAsync(ct), ct);
+    }
+
+    private async Task TryReconnectLoopAsync(CancellationToken ct)
+    {
+        int[] delays = [5, 10, 20, 30, 60];
+        int attempt = 0;
+        while (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_macAddress))
+        {
+            int secs = delays[Math.Min(attempt, delays.Length - 1)];
+            Console.Error.WriteLine($"[cmfd] Reconnect attempt {attempt + 1} in {secs}s…");
+            try { await Task.Delay(TimeSpan.FromSeconds(secs), ct); }
+            catch (OperationCanceledException) { return; }
+            try
+            {
+                await EnsureConnectedAsync(ct);
+                Console.Error.WriteLine("[cmfd] Reconnected successfully.");
+                return;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                Console.Error.WriteLine($"[cmfd] Reconnect failed: {ex.Message}");
+                attempt++;
+            }
+        }
     }
 
     private void DispatchNotification(ushort cmd, byte[] pkt)

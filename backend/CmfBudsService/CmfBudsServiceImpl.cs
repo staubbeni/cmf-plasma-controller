@@ -60,6 +60,8 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     private Timer?                           _fullPollTimer;
     private Connection?                      _systemConn;
     private IDisposable?                     _bluezSubscription;
+    // Cancelled the moment any path successfully reconnects, aborting the retry loop early.
+    private CancellationTokenSource?         _reconnectCts;
 
     // ── IDBusObject ─────────────────────────────────────────────────────────
     ObjectPath IDBusObject.ObjectPath => Path;
@@ -393,6 +395,8 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
             if (!silent) SetConnectionState("connecting");
             await _bt.ConnectAsync(ct);
             SetConnectionState("connected");
+            // Abort any in-flight retry loop — we're already connected.
+            _reconnectCts?.CancelAsync();
 
             // Start background read loop
             _readLoop = Task.Run(() => ReadLoopAsync(_cts.Token), _cts.Token);
@@ -487,7 +491,11 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
         // Auto-reconnect unless the service is shutting down
         if (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_macAddress))
-            _ = Task.Run(() => TryReconnectLoopAsync(ct), ct);
+        {
+            _reconnectCts?.Dispose();
+            _reconnectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _ = Task.Run(() => TryReconnectLoopAsync(_reconnectCts.Token), ct);
+        }
     }
 
     private async Task TryReconnectLoopAsync(CancellationToken ct)
@@ -496,10 +504,17 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         int attempt = 0;
         while (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_macAddress))
         {
+            // BlueZ watcher may have already reconnected while we were waiting.
+            if (_bt?.IsConnected == true) return;
+
             int secs = delays[Math.Min(attempt, delays.Length - 1)];
             Console.Error.WriteLine($"[cmfd] Reconnect attempt {attempt + 1} in {secs}s…");
             try { await Task.Delay(TimeSpan.FromSeconds(secs), ct); }
             catch (OperationCanceledException) { return; }
+
+            // Re-check: BlueZ watcher may have reconnected during the sleep.
+            if (_bt?.IsConnected == true) return;
+
             try
             {
                 await EnsureConnectedAsync(ct, silent: true);
@@ -781,6 +796,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     public void Dispose()
     {
         _cts.Cancel();
+        _reconnectCts?.Dispose();
         _bluezSubscription?.Dispose();
         try { _systemConn?.Dispose(); } catch { }
         _pollTimer?.Dispose();

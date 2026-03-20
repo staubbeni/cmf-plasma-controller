@@ -10,13 +10,19 @@ DAEMON_SRC="$(dirname "$0")/backend/CmfBudsService"
 DAEMON_BIN="${HOME}/.local/bin/cmfd"
 DBUS_SERVICE_DIR="${HOME}/.local/share/dbus-1/services"
 DBUS_SERVICE_FILE="${DBUS_SERVICE_DIR}/org.kde.cmfbuds.service"
+SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
+SYSTEMD_SERVICE_FILE="${SYSTEMD_USER_DIR}/cmfd.service"
 
 # ─── Uninstall ─────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--uninstall" ]]; then
     echo "▶ Uninstalling CMF Buds controller..."
+    systemctl --user stop  cmfd 2>/dev/null || true
+    systemctl --user disable cmfd 2>/dev/null || true
     rm -rf  "${PLASMOID_DEST}"
     rm -f   "${DAEMON_BIN}"
     rm -f   "${DBUS_SERVICE_FILE}"
+    rm -f   "${SYSTEMD_SERVICE_FILE}"
+    systemctl --user daemon-reload 2>/dev/null || true
     kquitapp6 plasmashell 2>/dev/null || true
     sleep 1
     kstart plasmashell &>/dev/null &
@@ -82,6 +88,30 @@ Name=org.kde.cmfbuds
 Exec=${DAEMON_BIN}
 EOF
 echo "  ✔ D-Bus activation: ${DBUS_SERVICE_FILE}"
+
+# ─── Systemd user service ──────────────────────────────────────────────────
+echo "▶ Installing systemd user service..."
+mkdir -p "${SYSTEMD_USER_DIR}"
+cat > "${SYSTEMD_SERVICE_FILE}" <<EOF
+[Unit]
+Description=CMF Buds Plasma controller daemon
+Documentation=https://github.com/staubbeni/cmf-plasma-controller
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+ExecStart=${DAEMON_BIN}
+Restart=on-failure
+RestartSec=5
+Environment=DBUS_SESSION_BUS_ADDRESS=%I
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now cmfd 2>/dev/null && \
+    echo "  ✔ cmfd started and enabled (journalctl --user -u cmfd)" || \
+    echo "  ✔ Systemd service installed (will start on next login)"
 
 # ─── Install Plasmoid ──────────────────────────────────────────────────────
 echo "▶ Installing plasmoid..."

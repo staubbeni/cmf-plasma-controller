@@ -173,8 +173,9 @@ QtObject {
     }
 
     // Full-state timer: picks up phone-side changes (ultra bass, EQ, etc.)
+    // Fires every 60s — change notifications via D-Bus signals cover the rest.
     readonly property var _fullStateTimer: Timer {
-        interval: 5000
+        interval: 60000
         repeat:   true
         running:  true
         onTriggered: {

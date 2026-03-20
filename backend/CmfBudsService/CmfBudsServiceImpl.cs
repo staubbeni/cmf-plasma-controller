@@ -62,6 +62,9 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     private IDisposable?                     _bluezSubscription;
     // Cancelled the moment any path successfully reconnects, aborting the retry loop early.
     private CancellationTokenSource?         _reconnectCts;
+    // Tracks which sides have already had a low-battery notification this session.
+    private bool                             _lowBattNotifiedLeft;
+    private bool                             _lowBattNotifiedRight;
 
     // ── IDBusObject ─────────────────────────────────────────────────────────
     ObjectPath IDBusObject.ObjectPath => Path;
@@ -284,6 +287,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                     var resp = await SendAndReceiveAsync(Protocol.CmdGetBattery, null, _cts.Token);
                     _battery = Protocol.ParseBattery(resp);
                     OnBatteryUpdated?.Invoke((_battery.Left, _battery.Right, _battery.Case));
+                    CheckLowBattery(_battery.Left, _battery.Right);
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
@@ -423,17 +427,22 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         var bt = _bt; // capture to avoid null-ref race with Disconnect
         if (bt is null) return;
         var hdr = new byte[8];
+        // Per-read timeout: if the device goes silent for >90s without closing
+        // the RFCOMM connection, treat it as a hang and force a reconnect.
+        const int ReadTimeoutSecs = 90;
         while (!ct.IsCancellationRequested)
         {
+            using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            readTimeout.CancelAfter(TimeSpan.FromSeconds(ReadTimeoutSecs));
             try
             {
-                await bt.ReadExactAsync(hdr, 0, 8, ct);
+                await bt.ReadExactAsync(hdr, 0, 8, readTimeout.Token);
 
                 // Resync: slide one byte at a time until we find the 0x55 preamble.
                 while (hdr[0] != 0x55 && !ct.IsCancellationRequested)
                 {
                     Array.Copy(hdr, 1, hdr, 0, 7);
-                    await bt.ReadExactAsync(hdr, 7, 1, ct);
+                    await bt.ReadExactAsync(hdr, 7, 1, readTimeout.Token);
                 }
 
                 if (!Protocol.ValidateHeader(hdr))
@@ -444,7 +453,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
                 int    payloadLen = Protocol.ReadPayloadLen(hdr);
                 byte[] rest       = new byte[payloadLen + 2]; // payload + 2-byte CRC
-                await bt.ReadExactAsync(rest, 0, rest.Length, ct);
+                await bt.ReadExactAsync(rest, 0, rest.Length, readTimeout.Token);
 
                 byte[] full = new byte[8 + payloadLen + 2];
                 hdr.CopyTo(full, 0);
@@ -465,7 +474,17 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                 else
                     DispatchNotification(cmd, full);
             }
-            catch (OperationCanceledException) { break; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Service shutting down — clean exit.
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                // readTimeout fired: device has been silent for >90s.
+                Console.Error.WriteLine("[cmfd] Read timeout — device appears silent, forcing reconnect.");
+                break;
+            }
             catch (EndOfStreamException)
             {
                 Console.Error.WriteLine("[cmfd] Device closed RFCOMM connection.");
@@ -542,8 +561,9 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
             _bluezSubscription?.Dispose();
             _bluezSubscription = null;
 
-            // BlueZ object path: AA:BB:CC:DD:EE:FF → /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF
-            string devPath = "/org/bluez/hci0/dev_" + mac.Replace(':', '_');
+            // Discover the adapter path dynamically (handles hci1, hci2, USB dongles…)
+            string adapterPath = await DeviceDiscovery.FindAdapterPathForDeviceAsync(mac, ct);
+            string devPath = adapterPath + "/dev_" + mac.Replace(':', '_');
 
             if (_systemConn == null)
             {
@@ -591,6 +611,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         {
             _battery = Protocol.ParseBattery(pkt);
             OnBatteryUpdated?.Invoke((_battery.Left, _battery.Right, _battery.Case));
+            CheckLowBattery(_battery.Left, _battery.Right);
         }
         // ANC — handle both GetANC and SetANC response codes
         else if (cmd == Protocol.RspGetANC || cmd == Protocol.RspSetANC)
@@ -704,6 +725,7 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
             var r = await SendAndReceiveAsync(Protocol.CmdGetBattery, ct);
             _battery = Protocol.ParseBattery(r);
             OnBatteryUpdated?.Invoke((_battery.Left, _battery.Right, _battery.Case));
+            CheckLowBattery(_battery.Left, _battery.Right);
         }, "battery");
 
         await TryFetch(async () =>
@@ -763,6 +785,55 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         _connState = state;
         OnConnectionStateChanged?.Invoke(_connState);
         Console.Error.WriteLine($"[cmfd] Connection state: {state}");
+        // Reset low-battery notification flags on each new connection.
+        if (state == "connected")
+        {
+            _lowBattNotifiedLeft  = false;
+            _lowBattNotifiedRight = false;
+        }
+    }
+
+    private const int LowBatteryThreshold = 20;
+
+    /// <summary>
+    /// Fires a desktop notification for a bud whose battery dropped below
+    /// <see cref="LowBatteryThreshold"/>%. Each side notifies at most once per
+    /// connection session to avoid repeated alerts.
+    /// </summary>
+    private void CheckLowBattery(int left, int right)
+    {
+        if (left  >= 0 && left  <= LowBatteryThreshold && !_lowBattNotifiedLeft)
+        {
+            _lowBattNotifiedLeft = true;
+            _ = Task.Run(() => NotifySendAsync($"Left bud at {left}%", "CMF Buds: Low battery"));
+        }
+        if (right >= 0 && right <= LowBatteryThreshold && !_lowBattNotifiedRight)
+        {
+            _lowBattNotifiedRight = true;
+            _ = Task.Run(() => NotifySendAsync($"Right bud at {right}%", "CMF Buds: Low battery"));
+        }
+    }
+
+    private static async Task NotifySendAsync(string body, string summary)
+    {
+        try
+        {
+            using var proc = new System.Diagnostics.Process();
+            proc.StartInfo = new System.Diagnostics.ProcessStartInfo(
+                "notify-send",
+                $"--urgency=normal --expire-time=8000 --app-name=\"CMF Buds\" \"{summary}\" \"{body}\"")
+            {
+                UseShellExecute        = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError  = false,
+            };
+            proc.Start();
+            await proc.WaitForExitAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[cmfd] notify-send failed: {ex.Message}");
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────

@@ -58,6 +58,8 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     private Task?                            _readLoop;
     private Timer?                           _pollTimer;
     private Timer?                           _fullPollTimer;
+    private Connection?                      _systemConn;
+    private IDisposable?                     _bluezSubscription;
 
     // ── IDBusObject ─────────────────────────────────────────────────────────
     ObjectPath IDBusObject.ObjectPath => Path;
@@ -237,6 +239,8 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                 Console.Error.WriteLine($"[cmfd] Auto-connect after MAC set failed: {ex.Message}");
             }
         });
+
+        _ = Task.Run(() => StartBlueZWatcherAsync(_macAddress, _cts.Token));
     }
 
     public Task<string> GetMacAddressAsync() => Task.FromResult(_macAddress);
@@ -510,6 +514,61 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Subscribes to BlueZ PropertiesChanged on the system bus so we can detect
+    /// when the device reconnects at the Bluetooth level and react immediately,
+    /// rather than waiting for the next retry-loop interval.
+    /// </summary>
+    private async Task StartBlueZWatcherAsync(string mac, CancellationToken ct)
+    {
+        try
+        {
+            // Tear down any previous subscription first.
+            _bluezSubscription?.Dispose();
+            _bluezSubscription = null;
+
+            // BlueZ object path: AA:BB:CC:DD:EE:FF → /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF
+            string devPath = "/org/bluez/hci0/dev_" + mac.Replace(':', '_');
+
+            if (_systemConn == null)
+            {
+                _systemConn = new Connection(Address.System!);
+                await _systemConn.ConnectAsync();
+            }
+
+            var proxy = _systemConn.CreateProxy<IProperties>("org.bluez", devPath);
+            _bluezSubscription = await proxy.WatchPropertiesChangedAsync(
+                args =>
+                {
+                    if (args.InterfaceName != "org.bluez.Device1") return;
+                    if (!args.Changed.TryGetValue("Connected", out var val)) return;
+                    if (val is not bool connected || !connected) return;
+
+                    Console.Error.WriteLine("[cmfd] BlueZ: device connected → triggering immediate reconnect");
+                    _ = Task.Run(async () =>
+                    {
+                        // Short settle delay so RFCOMM is ready before we attempt to open it.
+                        try { await Task.Delay(300, ct); }
+                        catch (OperationCanceledException) { return; }
+                        try { await EnsureConnectedAsync(ct, silent: true); }
+                        catch (Exception ex) when (!ct.IsCancellationRequested)
+                        {
+                            Console.Error.WriteLine(
+                                $"[cmfd] BlueZ-triggered reconnect failed: {ex.Message}");
+                        }
+                    }, ct);
+                },
+                ex => Console.Error.WriteLine($"[cmfd] BlueZ watcher error: {ex.Message}"));
+
+            Console.Error.WriteLine($"[cmfd] Watching BlueZ: {devPath}");
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Non-fatal: watcher is a best-effort speed-up; the retry loop still works.
+            Console.Error.WriteLine($"[cmfd] BlueZ watcher setup failed (non-fatal): {ex.Message}");
+        }
+    }
+
     private void DispatchNotification(ushort cmd, byte[] pkt)
     {
         // Battery (unsolicited push or response to GetBattery)
@@ -722,6 +781,8 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     public void Dispose()
     {
         _cts.Cancel();
+        _bluezSubscription?.Dispose();
+        try { _systemConn?.Dispose(); } catch { }
         _pollTimer?.Dispose();
         _fullPollTimer?.Dispose();
         _bt?.Dispose();

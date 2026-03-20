@@ -21,6 +21,10 @@
     <PackageReference Include="Tmds.DBus" Version="0.9.0" />
     <!-- Keep Tmds.DBus fully intact during trimming (it uses reflection internally) -->
     <TrimmerRootAssembly Include="Tmds.DBus" />
+    <!-- Keep our own assembly intact: Tmds.DBus discovers ICmfBudsService methods
+         via reflection at runtime (RegisterObjectAsync / CreateProxy), which the
+         trimmer cannot trace statically. -->
+    <TrimmerRootAssembly Include="cmfd" />
   </ItemGroup>
 
 </Project>

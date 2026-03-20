@@ -80,9 +80,9 @@ Protocol values reverse-engineered from [ear-web](https://github.com/radiance-pr
 ## Requirements
 
 - **KDE Plasma 6** on any Linux distribution
-- `.NET 8 SDK` or runtime: `sudo dnf install dotnet-sdk-8.0` / `sudo apt install dotnet-sdk-8.0`
 - **BlueZ**: usually pre-installed (`bluez` package)
 - CMF Buds Pro 2 **paired** via system Bluetooth settings
+- `.NET 8 SDK` — **only needed to build** (the installed binary is self-contained, no .NET runtime required at runtime)
 
 ---
 
@@ -155,9 +155,9 @@ cmfd --mac XX:XX:XX:XX:XX:XX
 # List paired devices
 cmfd --list-devices
 
-# Publish self-contained single binary
+# Publish self-contained single binary (no .NET runtime needed on target machine)
 dotnet publish backend/CmfBudsService -c Release -r linux-x64 \
-  --self-contained true -p:PublishSingleFile=true -o ./dist
+  --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -o ./dist
 ```
 
 ---

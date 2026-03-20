@@ -27,21 +27,24 @@ fi
 # ─── Dependency check ──────────────────────────────────────────────────────
 echo "▶ Checking dependencies..."
 
+# dotnet is only needed to build; not required at runtime (self-contained binary)
 if ! command -v dotnet &>/dev/null; then
-    echo "ERROR: .NET SDK not found."
-    echo "Install with: sudo dnf install dotnet-sdk-8.0"
+    echo "ERROR: .NET SDK not found (needed to build)."
+    echo "Install with: sudo dnf install dotnet-sdk-8.0   # Fedora"
+    echo "              sudo apt install dotnet-sdk-8.0   # Debian/Ubuntu"
     exit 1
 fi
 
 DOTNET_MAJOR=$(dotnet --version | cut -d. -f1)
 if (( DOTNET_MAJOR < 8 )); then
-    echo "ERROR: .NET 8+ required (found $(dotnet --version))."
-    echo "Install with: sudo dnf install dotnet-sdk-8.0"
+    echo "ERROR: .NET 8+ SDK required to build (found $(dotnet --version))."
     exit 1
 fi
 
 if ! command -v bluetoothctl &>/dev/null; then
-    echo "ERROR: bluetoothctl not found. Install BlueZ: sudo dnf install bluez"
+    echo "ERROR: bluetoothctl not found. Install BlueZ:"
+    echo "         sudo dnf install bluez   # Fedora"
+    echo "         sudo apt install bluez   # Debian/Ubuntu"
     exit 1
 fi
 
@@ -50,8 +53,9 @@ echo "▶ Building cmfd daemon..."
 dotnet publish "${DAEMON_SRC}/CmfBudsService.csproj" \
     -c Release \
     -r linux-x64 \
-    --self-contained false \
+    --self-contained true \
     -p:PublishSingleFile=true \
+    -p:PublishTrimmed=true \
     -o /tmp/cmfd-build
 
 mkdir -p "$(dirname "${DAEMON_BIN}")"

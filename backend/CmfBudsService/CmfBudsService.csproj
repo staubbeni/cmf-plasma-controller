@@ -9,14 +9,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Optimize>true</Optimize>
-    <!-- Single-file self-contained publish: dotnet publish -c Release -r linux-x64 -->
+    <!-- Self-contained single-file publish (run: dotnet publish -c Release -r linux-x64 -p:PublishTrimmed=true) -->
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <!-- Suppress IL2104: Tmds.DBus is kept fully intact via TrimmerRootAssembly below -->
+    <NoWarn>$(NoWarn);IL2104</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Tmds.DBus" Version="0.9.0" />
+    <!-- Keep Tmds.DBus fully intact during trimming (it uses reflection internally) -->
+    <TrimmerRootAssembly Include="Tmds.DBus" />
   </ItemGroup>
 
 </Project>

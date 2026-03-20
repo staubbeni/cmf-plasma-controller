@@ -42,9 +42,8 @@ PlasmoidItem {
         }
 
         Kirigami.Icon {
-            anchors.fill:   parent
-            source:         "audio-headset"
-            color:          Kirigami.Theme.textColor
+            anchors.fill: parent
+            source:       Qt.resolvedUrl("assets/ear_icon.png")
         }
 
         // Status dot (bottom-right corner)

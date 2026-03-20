@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Transparency / ambient mode — concentric dot pattern (earweb original design) -->
+<svg height="24" width="24" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="12" cy="13" r="2"/>
+  <circle cx="12" cy="4"  r="1"/>
+  <circle cx="16.5" cy="5.2"  r="1"/>
+  <circle cx="19.8" cy="8.5"  r="1"/>
+  <circle cx="21"   cy="13"   r="1"/>
+  <circle cx="19.8" cy="17.5" r="1"/>
+  <circle cx="4.2"  cy="17.5" r="1"/>
+  <circle cx="3"    cy="13"   r="1"/>
+  <circle cx="4.2"  cy="8.5"  r="1"/>
+  <circle cx="7.5"  cy="5.2"  r="1"/>
+</svg>

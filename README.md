@@ -5,7 +5,7 @@ A native **KDE Plasma 6** system-tray widget for managing **CMF Buds Pro 2** (by
 ### Features
 
 - **ANC / Transparency** — Off, High, Mid, Low, Adaptive, Transparency modes
-- **Equalizer** — 6 presets (Default, Bass Boost, Treble Boost, Vocal, Pop, Deep) + Custom EQ with bass/mid/treble sliders
+- **Equalizer** — 7 presets (Dirac OPTEO, Rock, Electronic, Pop, Vocals, Classical, Custom) + Custom EQ with bass/mid/treble sliders
 - **Ultra Bass** — toggle + level 1–5
 - **In-Ear Detection** — enable/disable
 - **Low Latency Mode** — gaming mode toggle

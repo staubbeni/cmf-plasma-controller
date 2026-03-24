@@ -579,11 +579,15 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                     if (!args.Changed.TryGetValue("Connected", out var val)) return;
                     if (val is not bool connected || !connected) return;
 
-                    Console.Error.WriteLine("[cmfd] BlueZ: device connected → triggering immediate reconnect");
+                    Console.Error.WriteLine("[cmfd] BlueZ: device connected → triggering reconnect");
                     _ = Task.Run(async () =>
                     {
-                        // Short settle delay so RFCOMM is ready before we attempt to open it.
-                        try { await Task.Delay(300, ct); }
+                        // Settle delay: give PipeWire/PulseAudio time to negotiate the A2DP
+                        // audio profile before we open the RFCOMM channel.  300 ms was too
+                        // short — the RFCOMM scan (and any EBUSY-triggered BT reset) would
+                        // race with A2DP setup, resulting in the device not appearing as an
+                        // audio output.
+                        try { await Task.Delay(2000, ct); }
                         catch (OperationCanceledException) { return; }
                         try { await EnsureConnectedAsync(ct, silent: true); }
                         catch (Exception ex) when (!ct.IsCancellationRequested)

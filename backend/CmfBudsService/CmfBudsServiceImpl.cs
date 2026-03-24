@@ -239,9 +239,15 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
         _ = Task.Run(async () =>
         {
             try { await EnsureConnectedAsync(_cts.Token); }
-            catch (Exception ex)
+            catch (Exception ex) when (!_cts.IsCancellationRequested)
             {
                 Console.Error.WriteLine($"[cmfd] Auto-connect after MAC set failed: {ex.Message}");
+                // No read loop is running to call HandleDisconnectAsync, so start the
+                // retry loop explicitly.  This handles "device already BT-connected but
+                // RFCOMM not yet ready" as well as "device not yet reachable at startup".
+                _reconnectCts?.Dispose();
+                _reconnectCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                _ = Task.Run(() => TryReconnectLoopAsync(_reconnectCts.Token), _cts.Token);
             }
         });
 
@@ -600,6 +606,30 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                 ex => Console.Error.WriteLine($"[cmfd] BlueZ watcher error: {ex.Message}"));
 
             Console.Error.WriteLine($"[cmfd] Watching BlueZ: {devPath}");
+
+            // If the device is already BT-connected when we set up the watcher, no
+            // PropertiesChanged event will fire.  Read the current Connected value and
+            // trigger a connect immediately so startup with buds already in-ear works.
+            try
+            {
+                var props = await proxy.GetAllAsync("org.bluez.Device1");
+                if (props.TryGetValue("Connected", out var cur) &&
+                    cur is bool alreadyConn && alreadyConn &&
+                    _bt?.IsConnected != true)
+                {
+                    Console.Error.WriteLine("[cmfd] BlueZ: device already connected at watcher start → connecting");
+                    _ = Task.Run(async () =>
+                    {
+                        try { await EnsureConnectedAsync(ct, silent: true); }
+                        catch (Exception ex2) when (!ct.IsCancellationRequested)
+                        {
+                            Console.Error.WriteLine(
+                                $"[cmfd] Startup connect (already-connected) failed: {ex2.Message}");
+                        }
+                    }, ct);
+                }
+            }
+            catch { /* non-fatal: watcher still active */ }
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

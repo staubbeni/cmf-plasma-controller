@@ -330,8 +330,7 @@ PlasmaExtras.Representation {
                                     Layout.alignment: Qt.AlignHCenter
                                     text: modelData.label
                                     font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                    color: isChecked ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
-                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    color: Kirigami.Theme.textColor
                                 }
                             }
 

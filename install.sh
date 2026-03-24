@@ -40,6 +40,12 @@ if ! command -v bluetoothctl &>/dev/null; then
     exit 1
 fi
 
+# ─── Stop running daemon before replacing binary (avoids "Text file busy") ─
+if systemctl --user is-active --quiet cmfd 2>/dev/null; then
+    echo "▶ Stopping cmfd service..."
+    systemctl --user stop cmfd
+fi
+
 # ─── Build daemon (or use pre-built binary from release tarball) ───────────
 PREBUILT="$(dirname "$0")/cmfd"
 if [[ -f "${PREBUILT}" && -x "${PREBUILT}" ]]; then
@@ -103,7 +109,7 @@ Wants=bluetooth.target
 ExecStart=${DAEMON_BIN}
 Restart=on-failure
 RestartSec=5
-Environment=DBUS_SESSION_BUS_ADDRESS=%I
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 
 [Install]
 WantedBy=default.target

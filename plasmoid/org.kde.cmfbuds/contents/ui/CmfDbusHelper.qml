@@ -173,6 +173,23 @@ QtObject {
         onTriggered: helper._pollCore()
     }
 
+    // Quick mode timer: poll ANC+listeningMode every 10s so phone-side changes
+    // are reflected promptly (these just read the daemon's cache, no RFCOMM I/O from QML).
+    readonly property var _modeTimer: Timer {
+        interval: 10000
+        repeat:   true
+        running:  true
+        onTriggered: {
+            if (helper.connectionState !== "connected") return
+            helper._dbusCallWithResult("GetCurrentMode", [], function(mode) {
+                if (mode) helper.ancMode = mode
+            })
+            helper._dbusCallWithResult("GetListeningMode", [], function(v) {
+                if (v !== null && v !== undefined) helper.listeningMode = parseInt(v) || 0
+            })
+        }
+    }
+
     // Full-state timer: picks up phone-side changes (ultra bass, EQ, etc.)
     // Fires every 60s — change notifications via D-Bus signals cover the rest.
     readonly property var _fullStateTimer: Timer {
@@ -228,6 +245,9 @@ QtObject {
     }
 
     function _fetchFullState() {
+        _dbusCallWithResult("GetCurrentMode", [], function(mode) {
+            if (mode) ancMode = mode
+        })
         _dbusCallWithResult("GetListeningMode", [], function(v) {
             if (v !== null && v !== undefined) listeningMode = parseInt(v) || 0
         })

@@ -41,18 +41,14 @@ if ! command -v bluetoothctl &>/dev/null; then
 fi
 
 # ─── Stop running daemon before replacing binary (avoids "Text file busy") ─
-if systemctl --user is-active --quiet cmfd 2>/dev/null; then
-    echo "▶ Stopping cmfd service..."
-    systemctl --user stop cmfd
-fi
-
 # ─── Build daemon (or use pre-built binary from release tarball) ───────────
 PREBUILT="$(dirname "$0")/cmfd"
 if [[ -f "${PREBUILT}" && -x "${PREBUILT}" ]]; then
     echo "▶ Using pre-built binary..."
     mkdir -p "$(dirname "${DAEMON_BIN}")"
-    cp "${PREBUILT}" "${DAEMON_BIN}"
-    chmod +x "${DAEMON_BIN}"
+    cp "${PREBUILT}" "${DAEMON_BIN}.new"
+    chmod +x "${DAEMON_BIN}.new"
+    mv "${DAEMON_BIN}.new" "${DAEMON_BIN}"
     echo "  ✔ Daemon installed to ${DAEMON_BIN}"
 else
     # dotnet SDK required only when building from source
@@ -80,8 +76,9 @@ else
         -o /tmp/cmfd-build
 
     mkdir -p "$(dirname "${DAEMON_BIN}")"
-    cp /tmp/cmfd-build/cmfd "${DAEMON_BIN}"
-    chmod +x "${DAEMON_BIN}"
+    cp /tmp/cmfd-build/cmfd "${DAEMON_BIN}.new"
+    chmod +x "${DAEMON_BIN}.new"
+    mv "${DAEMON_BIN}.new" "${DAEMON_BIN}"
     echo "  ✔ Daemon installed to ${DAEMON_BIN}"
 fi
 
@@ -115,9 +112,16 @@ Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 WantedBy=default.target
 EOF
 systemctl --user daemon-reload
-systemctl --user enable --now cmfd 2>/dev/null && \
-    echo "  ✔ cmfd started and enabled (journalctl --user -u cmfd)" || \
-    echo "  ✔ Systemd service installed (will start on next login)"
+systemctl --user enable cmfd 2>/dev/null || true
+# Restart if running (picks up the new binary), otherwise start fresh.
+if systemctl --user is-active --quiet cmfd 2>/dev/null; then
+    systemctl --user restart cmfd && \
+        echo "  ✔ cmfd restarted (journalctl --user -u cmfd)"
+else
+    systemctl --user start cmfd 2>/dev/null && \
+        echo "  ✔ cmfd started and enabled (journalctl --user -u cmfd)" || \
+        echo "  ✔ Systemd service installed (will start on next login)"
+fi
 
 # ─── Install Plasmoid ──────────────────────────────────────────────────────
 echo "▶ Installing plasmoid..."

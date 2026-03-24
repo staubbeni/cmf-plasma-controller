@@ -289,7 +289,9 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
     public void StartPolling()
     {
-        // Battery poll: every 30s
+        // Battery + ANC poll: every 30s
+        // ANC is included here (in addition to RefreshDeviceStateAsync at +25s) so that
+        // phone-side mode changes are reflected within ~15s instead of up to 60s.
         _pollTimer = new Timer(
             async _ =>
             {
@@ -305,6 +307,22 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"[cmfd] Battery poll error: {ex.Message}");
+                }
+                try
+                {
+                    if (_bt?.IsConnected != true) return;
+                    var r = await SendAndReceiveAsync(Protocol.CmdGetANC, null, _cts.Token);
+                    var newMode = Protocol.ParseANC(r);
+                    if (newMode != _ancMode)
+                    {
+                        _ancMode = newMode;
+                        OnModeChanged?.Invoke(AncModeToString(_ancMode));
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[cmfd] ANC poll error: {ex.Message}");
                 }
             },
             null,
@@ -654,8 +672,11 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
             OnBatteryUpdated?.Invoke((_battery.Left, _battery.Right, _battery.Case));
             CheckLowBattery(_battery.Left, _battery.Right);
         }
-        // ANC — handle both GetANC and SetANC response codes
-        else if (cmd == Protocol.RspGetANC || cmd == Protocol.RspSetANC)
+        // ANC — RspGetANC (0x401E) is an unsolicited state push; handle it directly.
+        // RspSetANC (0x700F) is the ack to our own fire-and-forget SetANC command and
+        // has only 1 byte of payload — pkt[9] would be the CRC byte, not the mode.
+        // Only parse it if the payload is long enough to actually contain the mode byte.
+        else if (cmd == Protocol.RspGetANC || (cmd == Protocol.RspSetANC && pkt.Length > 9 && pkt[5] >= 2))
         {
             _ancMode = Protocol.ParseANC(pkt);
             OnModeChanged?.Invoke(AncModeToString(_ancMode));

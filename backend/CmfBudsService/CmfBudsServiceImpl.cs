@@ -459,7 +459,20 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
                 if (!Protocol.ValidateHeader(hdr))
                 {
-                    Console.Error.WriteLine($"[cmfd] Bad header 0x{hdr[0]:X2} 0x{hdr[1]:X2} 0x{hdr[2]:X2} — skipping.");
+                    // 0x55 0x20 0x01 is a known alternate packet format from the
+                    // device.  Skip the entire packet body (payloadLen + 2-byte CRC)
+                    // in one read instead of re-syncing byte-by-byte.
+                    if (hdr[0] == 0x55 && hdr[2] == 0x01 && hdr[5] < 200)
+                    {
+                        int skip = hdr[5] + 2; // payload + CRC
+                        var discard = new byte[skip];
+                        await bt.ReadExactAsync(discard, 0, skip, readTimeout.Token);
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine(
+                            $"[cmfd] Bad header 0x{hdr[0]:X2} 0x{hdr[1]:X2} 0x{hdr[2]:X2} — skipping.");
+                    }
                     continue;
                 }
 
@@ -596,6 +609,9 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                     if (val is not bool connected || !connected) return;
 
                     Console.Error.WriteLine("[cmfd] BlueZ: device connected → triggering reconnect");
+                    // Cancel the exponential-backoff retry loop — the watcher's
+                    // path is faster (2 s settle vs 5 s+ delay).
+                    _reconnectCts?.CancelAsync();
                     _ = Task.Run(async () =>
                     {
                         // Settle delay: give PipeWire/PulseAudio time to negotiate the A2DP

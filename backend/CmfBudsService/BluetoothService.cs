@@ -114,12 +114,14 @@ public sealed class BluetoothService : IDisposable
         if (_channelCache.TryGetValue(mac, out byte cached))
         {
             Console.Error.WriteLine($"[bt] Trying cached channel {cached}…");
-            int cfd = TryChannel(mac, cached, out bool busy);
+            int cfd = TryChannel(mac, cached, out bool busy, out bool cacheHostDown);
             if (cfd >= 0) { _isConnected = true; _socket = WrapFd(cfd); return; }
+            if (cacheHostDown) throw new BluetoothConnectionException(
+                "BT ACL link not established. Waiting for device to connect.");
             if (busy)
             {
                 await ResetBluetoothConnectionAsync(mac, ct);
-                cfd = TryChannel(mac, cached, out _);
+                cfd = TryChannel(mac, cached, out _, out _);
                 if (cfd >= 0) { _isConnected = true; _socket = WrapFd(cfd); return; }
             }
             _channelCache.Remove(mac);
@@ -128,7 +130,7 @@ public sealed class BluetoothService : IDisposable
         // 2. Try the known NTAPP channel 16 first (from SDP records)
         {
             Console.Error.WriteLine($"[bt] Trying known NTAPP channel {KnownNtappChannel}…");
-            int cfd = TryChannel(mac, KnownNtappChannel, out bool busy);
+            int cfd = TryChannel(mac, KnownNtappChannel, out bool busy, out bool ntappHostDown);
             if (cfd >= 0)
             {
                 _channelCache[mac] = KnownNtappChannel;
@@ -136,11 +138,17 @@ public sealed class BluetoothService : IDisposable
                 _socket = WrapFd(cfd);
                 return;
             }
+            // EHOSTDOWN: BT ACL link not up yet — stop scanning. The BlueZ watcher will
+            // trigger a fresh scan from ch 16 once the device actually connects, preventing
+            // us from accidentally connecting to a wrong channel (e.g. HFP on ch 3) when
+            // the ACL link comes up mid-scan.
+            if (ntappHostDown) throw new BluetoothConnectionException(
+                "BT ACL link not established. Waiting for device to connect.");
             if (busy)
             {
                 Console.Error.WriteLine($"[bt] Channel {KnownNtappChannel} EBUSY — resetting BT connection…");
                 await ResetBluetoothConnectionAsync(mac, ct);
-                cfd = TryChannel(mac, KnownNtappChannel, out _);
+                cfd = TryChannel(mac, KnownNtappChannel, out _, out _);
                 if (cfd >= 0)
                 {
                     _channelCache[mac] = KnownNtappChannel;
@@ -158,7 +166,7 @@ public sealed class BluetoothService : IDisposable
             if (ch == KnownNtappChannel) continue; // already tried
             ct.ThrowIfCancellationRequested();
             Console.Error.WriteLine($"[bt] Trying channel {ch}…");
-            int fd = TryChannel(mac, ch, out bool busy);
+            int fd = TryChannel(mac, ch, out bool busy, out bool hostDown);
             if (fd >= 0)
             {
                 _channelCache[mac] = ch;
@@ -167,6 +175,10 @@ public sealed class BluetoothService : IDisposable
                 _socket = WrapFd(fd);
                 return;
             }
+            // EHOSTDOWN mid-scan: ACL link is down. Stop scanning — there is no
+            // point continuing since all subsequent channels will also fail.
+            if (hostDown) throw new BluetoothConnectionException(
+                "BT ACL link not established. Waiting for device to connect.");
             if (busy) busyChannels.Add(ch);
         }
 
@@ -179,7 +191,7 @@ public sealed class BluetoothService : IDisposable
             foreach (byte ch in busyChannels)
             {
                 Console.Error.WriteLine($"[bt] Retrying EBUSY channel {ch}…");
-                int fd = TryChannel(mac, ch, out _);
+                int fd = TryChannel(mac, ch, out _, out _);
                 if (fd >= 0)
                 {
                     _channelCache[mac] = ch;
@@ -223,11 +235,14 @@ public sealed class BluetoothService : IDisposable
     /// <summary>
     /// Opens a socket and attempts a blocking connect to <paramref name="channel"/>.
     /// Returns the fd on success, –1 on normal failure, or –1 with <paramref name="ebusy"/>=true
-    /// when EBUSY (errno=16) indicates a stale local DLC is already holding that channel.
+    /// when EBUSY (errno=16) indicates a stale local DLC is already holding that channel,
+    /// or –1 with <paramref name="hostDown"/>=true when EHOSTDOWN (errno=112) indicates
+    /// the BT ACL link is not yet established (device not BT-connected).
     /// </summary>
-    private static int TryChannel(string mac, byte channel, out bool ebusy)
+    private static int TryChannel(string mac, byte channel, out bool ebusy, out bool hostDown)
     {
         ebusy = false;
+        hostDown = false;
         int fd = LibcSocket(AfBluetooth, (int)SocketType.Stream, BtprotoRfcomm);
         if (fd < 0) return -1;
 
@@ -242,6 +257,11 @@ public sealed class BluetoothService : IDisposable
         {
             ebusy = true;
             Console.Error.WriteLine($"[bt] Channel {channel}: EBUSY (stale DLC)");
+        }
+        else if (err == 112) // EHOSTDOWN — BT ACL link not established
+        {
+            hostDown = true;
+            Console.Error.WriteLine($"[bt] Channel {channel} errno={err} (ACL link down)");
         }
         else if (err != 111) // not ECONNREFUSED
         {

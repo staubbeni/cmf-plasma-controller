@@ -98,8 +98,9 @@ QtObject {
         connectedSources: []
         onNewData: function(sourceName, data) {
             _bus.disconnectSource(sourceName)
-            let stdout = (data && data["stdout"]) ? data["stdout"].trim() : ""
-            let stderr = (data && data["stderr"]) ? data["stderr"].trim() : ""
+            let stdout   = (data && data["stdout"])     ? data["stdout"].trim() : ""
+            let stderr   = (data && data["stderr"])     ? data["stderr"].trim() : ""
+            let exitCode = (data && data["exit code"] !== undefined) ? parseInt(data["exit code"]) : 0
             helper.lastDebugOutput = "CMD: " + sourceName + "\nOUT: " + stdout + (stderr ? "\nERR: " + stderr : "")
             let cb = helper._pendingCallbacks[sourceName]
             if (cb !== undefined) {
@@ -107,7 +108,7 @@ QtObject {
                 for (let k in helper._pendingCallbacks)
                     if (k !== sourceName) next[k] = helper._pendingCallbacks[k]
                 helper._pendingCallbacks = next
-                cb(stdout ? helper._parseResult(stdout) : null)
+                cb(exitCode === 0 && stdout ? helper._parseResult(stdout) : null)
             }
         }
     }

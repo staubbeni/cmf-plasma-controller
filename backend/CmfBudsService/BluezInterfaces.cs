@@ -7,7 +7,7 @@ namespace CmfBudsService;
 /// signals on BlueZ device objects (system bus, org.bluez).
 /// </summary>
 [DBusInterface("org.freedesktop.DBus.Properties")]
-internal interface IProperties : IDBusObject
+public interface IProperties : IDBusObject
 {
     Task<IDisposable> WatchPropertiesChangedAsync(
         Action<(string InterfaceName, IDictionary<string, object> Changed, string[] Invalidated)> handler,
@@ -19,7 +19,7 @@ internal interface IProperties : IDBusObject
 /// objects (adapters and paired devices) without a bluetoothctl subprocess.
 /// </summary>
 [DBusInterface("org.freedesktop.DBus.ObjectManager")]
-internal interface IObjectManager : IDBusObject
+public interface IObjectManager : IDBusObject
 {
     Task<IDictionary<ObjectPath, IDictionary<string, IDictionary<string, object>>>> GetManagedObjectsAsync();
 }

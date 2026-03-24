@@ -40,7 +40,10 @@ if ! command -v bluetoothctl &>/dev/null; then
     exit 1
 fi
 
-# ─── Stop running daemon before replacing binary (avoids "Text file busy") ─
+# ─── Kill any running cmfd instances (systemd or D-Bus-activated) ─────────
+# Use mv (atomic inode swap) for the binary replace, so we don't need to stop
+# first.  But we DO kill after build to ensure the new binary is used live.
+
 # ─── Build daemon (or use pre-built binary from release tarball) ───────────
 PREBUILT="$(dirname "$0")/cmfd"
 if [[ -f "${PREBUILT}" && -x "${PREBUILT}" ]]; then
@@ -113,15 +116,13 @@ WantedBy=default.target
 EOF
 systemctl --user daemon-reload
 systemctl --user enable cmfd 2>/dev/null || true
-# Restart if running (picks up the new binary), otherwise start fresh.
-if systemctl --user is-active --quiet cmfd 2>/dev/null; then
-    systemctl --user restart cmfd && \
-        echo "  ✔ cmfd restarted (journalctl --user -u cmfd)"
-else
-    systemctl --user start cmfd 2>/dev/null && \
-        echo "  ✔ cmfd started and enabled (journalctl --user -u cmfd)" || \
-        echo "  ✔ Systemd service installed (will start on next login)"
-fi
+# Kill ALL running cmfd instances (systemd-managed or D-Bus-activated strays)
+# before (re)starting so only one clean instance runs with the new binary.
+pkill -x cmfd 2>/dev/null || true
+sleep 1
+systemctl --user start cmfd 2>/dev/null && \
+    echo "  ✔ cmfd started (journalctl --user -u cmfd)" || \
+    echo "  ✔ Systemd service installed (will start on next login)"
 
 # ─── Install Plasmoid ──────────────────────────────────────────────────────
 echo "▶ Installing plasmoid..."

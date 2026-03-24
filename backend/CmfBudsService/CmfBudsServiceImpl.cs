@@ -494,6 +494,10 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
             catch (OperationCanceledException)
             {
                 // readTimeout fired: device has been silent for >90s.
+                // Clear the channel cache — the channel we connected on didn't
+                // produce any traffic, so it may be the wrong one (e.g. a fallback
+                // channel chosen because the correct one was temporarily EBUSY).
+                BluetoothService.EvictChannelCache(_macAddress);
                 Console.Error.WriteLine("[cmfd] Read timeout — device appears silent, forcing reconnect.");
                 break;
             }
@@ -737,14 +741,9 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     {
         async Task TryFetch(Func<Task> action, string name)
         {
-            // Bail the entire fetch if the connection dropped between sub-commands.
-            // Without this, each sub-command triggers its own EnsureConnectedAsync →
-            // full 30-channel scan, causing a visible rapid reconnect storm.
-            if (_bt?.IsConnected != true)
-                throw new OperationCanceledException("connection dropped during init fetch");
             try { await action(); }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { Console.Error.WriteLine($"[cmfd] Init fetch {name}: {ex.Message}"); }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            { Console.Error.WriteLine($"[cmfd] Init fetch {name}: {ex.Message}"); }
         }
 
         await TryFetch(async () =>

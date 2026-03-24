@@ -90,6 +90,14 @@ public sealed class BluetoothService : IDisposable
 
     public void Dispose() => Disconnect();
 
+    /// <summary>
+    /// Removes the cached channel for this MAC address.
+    /// Call this when the device stops responding on the cached channel so the
+    /// next connect attempt does a full scan and finds the correct channel.
+    /// </summary>
+    public static void EvictChannelCache(string mac)
+        => _channelCache.Remove(mac.ToUpperInvariant());
+
     // -----------------------------------------------------------------------
     // Channel scan
     // -----------------------------------------------------------------------
@@ -136,6 +144,7 @@ public sealed class BluetoothService : IDisposable
                 if (cfd >= 0)
                 {
                     _channelCache[mac] = KnownNtappChannel;
+                    _isConnected = true;
                     _socket = WrapFd(cfd);
                     return;
                 }
@@ -154,6 +163,7 @@ public sealed class BluetoothService : IDisposable
             {
                 _channelCache[mac] = ch;
                 Console.Error.WriteLine($"[bt] Found channel {ch}.");
+                _isConnected = true;
                 _socket = WrapFd(fd);
                 return;
             }
@@ -173,6 +183,7 @@ public sealed class BluetoothService : IDisposable
                 if (fd >= 0)
                 {
                     _channelCache[mac] = ch;
+                    _isConnected = true;
                     Console.Error.WriteLine($"[bt] Connected on formerly-busy channel {ch}.");
                     _socket = WrapFd(fd);
                     return;

@@ -189,8 +189,6 @@ QtObject {
     property string _prevConnState: ""
 
     Component.onCompleted: {
-        if (macAddress)
-            _dbusCall("SetMacAddress", [macAddress])
         Qt.callLater(_pollCore)
     }
 

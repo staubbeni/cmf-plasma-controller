@@ -226,10 +226,16 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
     public async Task SetMacAddressAsync(string macAddress)
     {
+        string normalized = macAddress.ToUpperInvariant();
+
         await _connLock.WaitAsync(_cts.Token);
         try
         {
-            _macAddress = macAddress.ToUpperInvariant();
+            // If the same MAC is already connected, nothing to do.
+            if (_macAddress == normalized && _bt?.IsConnected == true)
+                return;
+
+            _macAddress = normalized;
             _bt?.Dispose();
             _bt = null;
             SetConnectionState("disconnected");

@@ -612,30 +612,11 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                 ex => Console.Error.WriteLine($"[cmfd] BlueZ watcher error: {ex.Message}"));
 
             Console.Error.WriteLine($"[cmfd] Watching BlueZ: {devPath}");
-
-            // If the device is already BT-connected when we set up the watcher, no
-            // PropertiesChanged event will fire.  Read the current Connected value and
-            // trigger a connect immediately so startup with buds already in-ear works.
-            try
-            {
-                var props = await proxy.GetAllAsync("org.bluez.Device1");
-                if (props.TryGetValue("Connected", out var cur) &&
-                    cur is bool alreadyConn && alreadyConn &&
-                    _bt?.IsConnected != true)
-                {
-                    Console.Error.WriteLine("[cmfd] BlueZ: device already connected at watcher start → connecting");
-                    _ = Task.Run(async () =>
-                    {
-                        try { await EnsureConnectedAsync(ct, silent: true); }
-                        catch (Exception ex2) when (!ct.IsCancellationRequested)
-                        {
-                            Console.Error.WriteLine(
-                                $"[cmfd] Startup connect (already-connected) failed: {ex2.Message}");
-                        }
-                    }, ct);
-                }
-            }
-            catch { /* non-fatal: watcher still active */ }
+            // Note: the 'already connected at startup' case is handled by the
+            // TryReconnectLoopAsync started in SetMacAddressAsync on failure.
+            // Adding a second immediate EnsureConnectedAsync here races with the
+            // SetMacAddressAsync task and causes EALREADY (errno=114) on every
+            // RFCOMM channel in both scans, producing a rapid reconnect loop.
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -756,7 +737,13 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
     {
         async Task TryFetch(Func<Task> action, string name)
         {
+            // Bail the entire fetch if the connection dropped between sub-commands.
+            // Without this, each sub-command triggers its own EnsureConnectedAsync →
+            // full 30-channel scan, causing a visible rapid reconnect storm.
+            if (_bt?.IsConnected != true)
+                throw new OperationCanceledException("connection dropped during init fetch");
             try { await action(); }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex) { Console.Error.WriteLine($"[cmfd] Init fetch {name}: {ex.Message}"); }
         }
 

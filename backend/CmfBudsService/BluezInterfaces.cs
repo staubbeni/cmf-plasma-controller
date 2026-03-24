@@ -12,7 +12,6 @@ internal interface IProperties : IDBusObject
     Task<IDisposable> WatchPropertiesChangedAsync(
         Action<(string InterfaceName, IDictionary<string, object> Changed, string[] Invalidated)> handler,
         Action<Exception>? onError = null);
-    Task<IDictionary<string, object>> GetAllAsync(string interfaceName);
 }
 
 /// <summary>

@@ -36,7 +36,11 @@ public static class DeviceDiscovery
             using var conn = new Connection(Address.System!);
             await conn.ConnectAsync();
             var mgr = conn.CreateProxy<IObjectManager>("org.bluez", "/");
-            var objects = await mgr.GetManagedObjectsAsync();
+            // Guard against BlueZ being slow to respond (e.g. right after boot).
+            // Without a timeout, GetManagedObjectsAsync can hang for minutes if
+            // the adapter is still initialising.
+            using var bluezTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var objects = await mgr.GetManagedObjectsAsync().WaitAsync(bluezTimeout.Token);
 
             var devices = new List<PairedDevice>();
             foreach (var (path, interfaces) in objects)
@@ -53,7 +57,9 @@ public static class DeviceDiscovery
             }
             return devices;
         }
-        catch (OperationCanceledException) { throw; }
+        // Only re-throw when the *outer* token is cancelled (service shutdown).
+        // A timeout OperationCanceledException should fall through to the bluetoothctl fallback.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[cmfd] BlueZ ObjectManager unavailable ({ex.Message}), falling back to bluetoothctl");
@@ -63,7 +69,9 @@ public static class DeviceDiscovery
         var fallback = new List<PairedDevice>();
         try
         {
-            string output = await RunAsync("bluetoothctl", "devices Paired", ct);
+            using var btctlTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            btctlTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+            string output = await RunAsync("bluetoothctl", "devices Paired", btctlTimeout.Token);
             foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var m = DeviceLineRegex.Match(line.Trim());
@@ -73,7 +81,7 @@ public static class DeviceDiscovery
                         m.Groups["name"].Value.Trim()));
             }
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { /* silently return empty list */ }
         return fallback;
     }

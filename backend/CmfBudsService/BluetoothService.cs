@@ -213,17 +213,20 @@ public sealed class BluetoothService : IDisposable
     /// </summary>
     private static async Task ResetBluetoothConnectionAsync(string mac, CancellationToken ct)
     {
-        string devPath = "/org/bluez/hci0/dev_" + mac.Replace(":", "_");
+        string adapterPath = await DeviceDiscovery.FindAdapterPathForDeviceAsync(mac, ct);
+        string devPath = adapterPath + "/dev_" + mac.Replace(":", "_");
         try
         {
             using var sysBus = new Connection(Address.System!);
-            await sysBus.ConnectAsync();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            await sysBus.ConnectAsync().WaitAsync(timeout.Token);
             var device = sysBus.CreateProxy<IDevice1>("org.bluez", devPath);
             Console.Error.WriteLine("[bt] Disconnecting device via BlueZ to clear stale DLCs…");
-            await device.DisconnectAsync();
+            await device.DisconnectAsync().WaitAsync(timeout.Token);
             await Task.Delay(2000, ct);
             Console.Error.WriteLine("[bt] Reconnecting device via BlueZ…");
-            await device.ConnectAsync();
+            await device.ConnectAsync().WaitAsync(timeout.Token);
             await Task.Delay(2000, ct);
         }
         catch (Exception ex)

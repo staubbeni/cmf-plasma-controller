@@ -244,7 +244,13 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
         _ = Task.Run(async () =>
         {
-            try { await EnsureConnectedAsync(_cts.Token); }
+            try
+            {
+                // Actively bring up the BT ACL link before trying RFCOMM.
+                // After boot / restart the device may be paired but not connected.
+                await TryBlueZConnectAsync(normalized, _cts.Token);
+                await EnsureConnectedAsync(_cts.Token);
+            }
             catch (Exception ex) when (!_cts.IsCancellationRequested)
             {
                 Console.Error.WriteLine($"[cmfd] Auto-connect after MAC set failed: {ex.Message}");
@@ -583,15 +589,60 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
             try
             {
+                // Actively bring up the BT ACL link via BlueZ before trying
+                // RFCOMM.  Without this, raw RFCOMM connect fails with
+                // EHOSTDOWN (errno=112) when the device hasn't BT-connected
+                // yet (e.g. right after machine restart).
+                bool btLinked = await TryBlueZConnectAsync(_macAddress, ct);
+                if (!btLinked)
+                {
+                    // Device not reachable — no point trying RFCOMM.
+                    attempt++;
+                    continue;
+                }
+
                 await EnsureConnectedAsync(ct, silent: true);
                 Console.Error.WriteLine("[cmfd] Reconnected successfully.");
                 return;
             }
+            catch (OperationCanceledException) { return; }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 Console.Error.WriteLine($"[cmfd] Reconnect failed: {ex.Message}");
                 attempt++;
             }
+        }
+    }
+
+    /// <summary>
+    /// Asks BlueZ to connect to the device (ACL + audio profiles).
+    /// Returns true if the device is now BT-connected, false if unreachable.
+    /// </summary>
+    private async Task<bool> TryBlueZConnectAsync(string mac, CancellationToken ct)
+    {
+        try
+        {
+            string adapterPath = await DeviceDiscovery.FindAdapterPathForDeviceAsync(mac, ct);
+            string devPath = adapterPath + "/dev_" + mac.Replace(':', '_');
+
+            using var conn = new Connection(Address.System!);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            await conn.ConnectAsync().WaitAsync(timeout.Token);
+
+            var device = conn.CreateProxy<IDevice1>("org.bluez", devPath);
+            Console.Error.WriteLine("[cmfd] Initiating BT connection via BlueZ…");
+            await device.ConnectAsync().WaitAsync(timeout.Token);
+            Console.Error.WriteLine("[cmfd] BT connection established via BlueZ.");
+            // Settle: let audio profiles (A2DP/HFP) negotiate before RFCOMM.
+            await Task.Delay(2000, ct);
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[cmfd] BlueZ connect: {ex.Message}");
+            return false;
         }
     }
 

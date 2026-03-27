@@ -33,14 +33,15 @@ public static class DeviceDiscovery
         // Primary: BlueZ ObjectManager via system bus
         try
         {
-            using var conn = new Connection(Address.System!);
-            await conn.ConnectAsync();
-            var mgr = conn.CreateProxy<IObjectManager>("org.bluez", "/");
-            // Guard against BlueZ being slow to respond (e.g. right after boot).
-            // Without a timeout, GetManagedObjectsAsync can hang for minutes if
-            // the adapter is still initialising.
+            // Wrap the entire D-Bus interaction in a timeout so that neither
+            // ConnectAsync nor GetManagedObjectsAsync can hang the caller.
             using var bluezTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var objects = await mgr.GetManagedObjectsAsync().WaitAsync(bluezTimeout.Token);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, bluezTimeout.Token);
+
+            using var conn = new Connection(Address.System!);
+            await conn.ConnectAsync().WaitAsync(linked.Token);
+            var mgr = conn.CreateProxy<IObjectManager>("org.bluez", "/");
+            var objects = await mgr.GetManagedObjectsAsync().WaitAsync(linked.Token);
 
             var devices = new List<PairedDevice>();
             foreach (var (path, interfaces) in objects)
@@ -94,10 +95,13 @@ public static class DeviceDiscovery
     {
         try
         {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+
             using var conn = new Connection(Address.System!);
-            await conn.ConnectAsync();
+            await conn.ConnectAsync().WaitAsync(linked.Token);
             var mgr = conn.CreateProxy<IObjectManager>("org.bluez", "/");
-            var objects = await mgr.GetManagedObjectsAsync();
+            var objects = await mgr.GetManagedObjectsAsync().WaitAsync(linked.Token);
             foreach (var (_, interfaces) in objects)
             {
                 if (!interfaces.TryGetValue("org.bluez.Adapter1", out var props)) continue;
@@ -128,10 +132,13 @@ public static class DeviceDiscovery
         const string fallback = "/org/bluez/hci0";
         try
         {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+
             using var conn = new Connection(Address.System!);
-            await conn.ConnectAsync();
+            await conn.ConnectAsync().WaitAsync(linked.Token);
             var mgr = conn.CreateProxy<IObjectManager>("org.bluez", "/");
-            var objects = await mgr.GetManagedObjectsAsync();
+            var objects = await mgr.GetManagedObjectsAsync().WaitAsync(linked.Token);
 
             string normalised = macAddress.ToUpperInvariant();
             // Walk Device1 objects: /org/bluez/hciN/dev_XX_XX…

@@ -572,35 +572,28 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
 
     private async Task TryReconnectLoopAsync(CancellationToken ct)
     {
+        // Short retry loop: try a few times to handle the case where the device
+        // is already BT-connected but RFCOMM wasn't ready yet.  If these fail,
+        // stop polling — the BlueZ PropertiesChanged watcher will trigger an
+        // immediate reconnect the moment the device connects at the BT level,
+        // without tying up the adapter with page-timeout scans.
         int[] delays = [5, 10, 20, 30, 60];
+        const int maxAttempts = 5;
         int attempt = 0;
-        while (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_macAddress))
+        while (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_macAddress)
+               && attempt < maxAttempts)
         {
-            // BlueZ watcher may have already reconnected while we were waiting.
             if (_bt?.IsConnected == true) return;
 
             int secs = delays[Math.Min(attempt, delays.Length - 1)];
-            Console.Error.WriteLine($"[cmfd] Reconnect attempt {attempt + 1} in {secs}s…");
+            Console.Error.WriteLine($"[cmfd] Reconnect attempt {attempt + 1}/{maxAttempts} in {secs}s…");
             try { await Task.Delay(TimeSpan.FromSeconds(secs), ct); }
             catch (OperationCanceledException) { return; }
 
-            // Re-check: BlueZ watcher may have reconnected during the sleep.
             if (_bt?.IsConnected == true) return;
 
             try
             {
-                // Actively bring up the BT ACL link via BlueZ before trying
-                // RFCOMM.  Without this, raw RFCOMM connect fails with
-                // EHOSTDOWN (errno=112) when the device hasn't BT-connected
-                // yet (e.g. right after machine restart).
-                bool btLinked = await TryBlueZConnectAsync(_macAddress, ct);
-                if (!btLinked)
-                {
-                    // Device not reachable — no point trying RFCOMM.
-                    attempt++;
-                    continue;
-                }
-
                 await EnsureConnectedAsync(ct, silent: true);
                 Console.Error.WriteLine("[cmfd] Reconnected successfully.");
                 return;
@@ -612,6 +605,9 @@ public sealed class CmfBudsServiceImpl : ICmfBudsService, IDisposable
                 attempt++;
             }
         }
+
+        if (!ct.IsCancellationRequested && _bt?.IsConnected != true)
+            Console.Error.WriteLine("[cmfd] Retry limit reached — waiting for BlueZ watcher.");
     }
 
     /// <summary>
